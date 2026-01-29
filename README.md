@@ -47,6 +47,10 @@ make build
 
 This produces `./jv`.
 
+## Release
+
+Release workflow and local dry-run steps are documented in `docs/RELEASING.md`.
+
 ## Usage
 
 ### Pipe mode (default)

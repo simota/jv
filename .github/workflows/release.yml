@@ -33,6 +33,7 @@ jobs:
           GOOS: ${{ matrix.os }}
           GOARCH: ${{ matrix.arch }}
           VERSION: ${{ github.ref_name }}
+          CGO_ENABLED: 0
         run: |
           set -euo pipefail
           mkdir -p dist

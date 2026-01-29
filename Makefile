@@ -2,14 +2,15 @@ GO ?= go
 BIN ?= jv
 CMD ?= ./cmd/jv
 PKG ?= ./...
+CGO_ENABLED ?= 0
 
 .PHONY: build run test fmt tidy clean
 
 build:
-	$(GO) build -o $(BIN) $(CMD)
+	CGO_ENABLED=$(CGO_ENABLED) $(GO) build -o $(BIN) $(CMD)
 
 run:
-	$(GO) run $(CMD)
+	CGO_ENABLED=$(CGO_ENABLED) $(GO) run $(CMD)
 
 test:
 	$(GO) test $(PKG)
