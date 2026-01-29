@@ -8,7 +8,38 @@ A simple JSON viewer written in Go. Supports pretty formatting, optional type hi
 - Collapsible interactive TUI
 - Search and copy for paths/values
 
-## Install / Build
+## Install
+
+### Go install
+
+```bash
+go install github.com/simota/jv/cmd/jv@latest
+```
+
+### From GitHub Releases
+
+Download a prebuilt binary from the Releases page and put it in your `PATH`.
+
+Examples:
+
+```bash
+# macOS (arm64)
+curl -LO https://github.com/simota/jv/releases/download/v0.1.0/jv_v0.1.0_darwin_arm64.tar.gz
+tar -xzf jv_v0.1.0_darwin_arm64.tar.gz
+sudo mv jv_v0.1.0_darwin_arm64 /usr/local/bin/jv
+
+# Linux (amd64)
+curl -LO https://github.com/simota/jv/releases/download/v0.1.0/jv_v0.1.0_linux_amd64.tar.gz
+tar -xzf jv_v0.1.0_linux_amd64.tar.gz
+sudo mv jv_v0.1.0_linux_amd64 /usr/local/bin/jv
+
+# Windows (amd64) - PowerShell
+Invoke-WebRequest -Uri https://github.com/simota/jv/releases/download/v0.1.0/jv_v0.1.0_windows_amd64.zip -OutFile jv_v0.1.0_windows_amd64.zip
+Expand-Archive jv_v0.1.0_windows_amd64.zip -DestinationPath .
+Move-Item jv_v0.1.0_windows_amd64.exe C:\\Windows\\System32\\jv.exe
+```
+
+## Build
 
 ```bash
 make build
