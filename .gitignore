@@ -1,0 +1,17 @@
+# Go build outputs
+/jv
+/jv.exe
+*.test
+*.out
+
+# Coverage
+/coverage
+coverage.out
+
+# OS files
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+.agents/
