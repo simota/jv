@@ -1,0 +1,56 @@
+name: release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [linux, darwin, windows]
+        arch: [amd64, arm64]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Test
+        run: go test ./...
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ext=""
+          if [ "$GOOS" = "windows" ]; then
+            ext=".exe"
+          fi
+          bin="jv_${VERSION}_${GOOS}_${GOARCH}${ext}"
+          go build -o "dist/${bin}" ./cmd/jv
+          if [ "$GOOS" = "windows" ]; then
+            (cd dist && zip "jv_${VERSION}_${GOOS}_${GOARCH}.zip" "${bin}")
+          else
+            (cd dist && tar -czf "jv_${VERSION}_${GOOS}_${GOARCH}.tar.gz" "${bin}")
+          fi
+
+      - name: Upload release assets
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
