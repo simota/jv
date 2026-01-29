@@ -1,0 +1,44 @@
+{
+  "name": "John Doe",
+  "age": 30,
+  "active": true,
+  "score": 98.6,
+  "tags": [
+    "developer",
+    "golang",
+    "tui"
+  ],
+  "address": {
+    "city": "Tokyo",
+    "zip": "100-0001",
+    "lines": [
+      "1-1-1 Chiyoda",
+      "Building 2"
+    ]
+  },
+  "projects": [
+    {
+      "id": 1,
+      "name": "Alpha",
+      "status": "active"
+    },
+    {
+      "id": 2,
+      "name": "Beta",
+      "status": null
+    }
+  ],
+  "metrics": {
+    "visits": 1200,
+    "ratio": 0.42,
+    "flags": [true, false, true]
+  },
+  "misc": {
+    "key with space": "needs quoting in path",
+    "kebab-key": "also",
+    "nested": {
+      "emptyObj": {},
+      "emptyArr": []
+    }
+  }
+}
