@@ -13,6 +13,7 @@ type Styles struct {
 	Header   lipgloss.Style
 	Footer   lipgloss.Style
 	Help     lipgloss.Style
+	Match    lipgloss.Style
 }
 
 func NewStyles(tokens Tokens) Styles {
@@ -28,6 +29,7 @@ func NewStyles(tokens Tokens) Styles {
 		Header:   base.Bold(tokens.Typography.HeaderBold),
 		Footer:   base,
 		Help:     base,
+		Match:    base.Underline(true),
 	}
 
 	if tokens.Colors.Key == "" {
@@ -44,6 +46,7 @@ func NewStyles(tokens Tokens) Styles {
 	styles.Header = base.Bold(tokens.Typography.HeaderBold).Foreground(lipgloss.Color(tokens.Colors.Header))
 	styles.Footer = base.Foreground(lipgloss.Color(tokens.Colors.Footer))
 	styles.Help = base.Foreground(lipgloss.Color(tokens.Colors.Help))
+	styles.Match = base.Bold(true).Underline(true).Foreground(lipgloss.Color(tokens.Colors.Match))
 
 	return styles
 }

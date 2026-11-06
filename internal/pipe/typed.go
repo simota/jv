@@ -66,7 +66,7 @@ func (f *TypedFormatter) nodeLabel(node *parser.Node) string {
 	if node.Parent.Type == parser.TypeArray {
 		return f.color.Key("["+node.Key+"]") + f.containerHint(node)
 	}
-	return f.color.Key("\""+node.Key+"\"") + f.containerHint(node)
+	return f.color.Key(parser.QuoteString(node.Key)) + f.containerHint(node)
 }
 
 func (f *TypedFormatter) containerHint(node *parser.Node) string {
