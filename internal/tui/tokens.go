@@ -19,6 +19,7 @@ type ColorTokens struct {
 	Header     string
 	Footer     string
 	Help       string
+	Match      string
 }
 
 type SpacingTokens struct {
@@ -51,9 +52,11 @@ func DefaultTokens(theme string, colorEnabled bool) Tokens {
 			Header:     "8",
 			Footer:     "8",
 			Help:       "8",
+			Match:      "11",
 		}
 		if theme == "light" {
 			colors.SelectedBg = "12"
+			colors.Match = "1"
 		}
 	}
 

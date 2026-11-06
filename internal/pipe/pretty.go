@@ -2,22 +2,40 @@ package pipe
 
 import (
 	"bytes"
-	"strconv"
 	"strings"
 
 	"github.com/simota/jv/internal/parser"
 )
 
 type PrettyFormatter struct {
-	color Colorizer
+	color   Colorizer
+	compact bool
+	raw     bool
 }
 
 func NewPrettyFormatter(colorEnabled bool) *PrettyFormatter {
 	return &PrettyFormatter{color: Colorizer{Enabled: colorEnabled}}
 }
 
+// NewCompactFormatter renders each document on a single line.
+func NewCompactFormatter(colorEnabled bool) *PrettyFormatter {
+	return &PrettyFormatter{color: Colorizer{Enabled: colorEnabled}, compact: true}
+}
+
+// WithRaw makes top-level string values print without quotes or escaping
+// (useful for shell scripts: `jv -r -p .name`).
+func (f *PrettyFormatter) WithRaw(raw bool) *PrettyFormatter {
+	f.raw = raw
+	return f
+}
+
 func (f *PrettyFormatter) Format(root *parser.Node) string {
 	var buf bytes.Buffer
+	if f.raw && root.Type == parser.TypeString {
+		buf.WriteString(root.RawString())
+		buf.WriteByte('\n')
+		return buf.String()
+	}
 	f.writeNode(&buf, root, 0)
 	buf.WriteByte('\n')
 	return buf.String()
@@ -40,19 +58,19 @@ func (f *PrettyFormatter) writeObject(buf *bytes.Buffer, node *parser.Node, dept
 		buf.WriteString("}")
 		return
 	}
-	buf.WriteByte('\n')
-	indent := strings.Repeat("  ", depth+1)
 	for i, child := range node.Children {
-		buf.WriteString(indent)
-		buf.WriteString(f.color.Key(strconv.Quote(child.Key)))
-		buf.WriteString(": ")
+		f.newline(buf, depth+1)
+		buf.WriteString(f.color.Key(parser.QuoteString(child.Key)))
+		buf.WriteString(":")
+		if !f.compact {
+			buf.WriteString(" ")
+		}
 		f.writeNode(buf, child, depth+1)
 		if i < len(node.Children)-1 {
 			buf.WriteString(",")
 		}
-		buf.WriteByte('\n')
 	}
-	buf.WriteString(strings.Repeat("  ", depth))
+	f.newline(buf, depth)
 	buf.WriteString("}")
 }
 
@@ -62,17 +80,14 @@ func (f *PrettyFormatter) writeArray(buf *bytes.Buffer, node *parser.Node, depth
 		buf.WriteString("]")
 		return
 	}
-	buf.WriteByte('\n')
-	indent := strings.Repeat("  ", depth+1)
 	for i, child := range node.Children {
-		buf.WriteString(indent)
+		f.newline(buf, depth+1)
 		f.writeNode(buf, child, depth+1)
 		if i < len(node.Children)-1 {
 			buf.WriteString(",")
 		}
-		buf.WriteByte('\n')
 	}
-	buf.WriteString(strings.Repeat("  ", depth))
+	f.newline(buf, depth)
 	buf.WriteString("]")
 }
 
@@ -89,4 +104,12 @@ func (f *PrettyFormatter) formatPrimitive(node *parser.Node) string {
 	default:
 		return node.StringValue()
 	}
+}
+
+func (f *PrettyFormatter) newline(buf *bytes.Buffer, depth int) {
+	if f.compact {
+		return
+	}
+	buf.WriteByte('\n')
+	buf.WriteString(strings.Repeat("  ", depth))
 }
