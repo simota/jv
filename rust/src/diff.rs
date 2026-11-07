@@ -24,14 +24,41 @@ impl Kind {
     }
 }
 
-/// One difference, addressed by a jv path (`$.a[0].b`). `old` is `None` for
-/// additions and `new` is `None` for removals.
+/// One difference, addressed by a jv path (`$.a[0].b`). Node ids refer to
+/// the old or the new document.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Change {
-    pub kind: Kind,
-    pub path: String,
-    pub old: Option<NodeId>,
-    pub new: Option<NodeId>,
+pub enum Change {
+    Added {
+        path: String,
+        new: NodeId,
+    },
+    Removed {
+        path: String,
+        old: NodeId,
+    },
+    Changed {
+        path: String,
+        old: NodeId,
+        new: NodeId,
+    },
+}
+
+impl Change {
+    pub fn kind(&self) -> Kind {
+        match self {
+            Change::Added { .. } => Kind::Added,
+            Change::Removed { .. } => Kind::Removed,
+            Change::Changed { .. } => Kind::Changed,
+        }
+    }
+
+    pub fn path(&self) -> &str {
+        match self {
+            Change::Added { path, .. }
+            | Change::Removed { path, .. }
+            | Change::Changed { path, .. } => path,
+        }
+    }
 }
 
 /// Returns the differences between `a` (in `da`) and `b` (in `db`) in
@@ -41,14 +68,14 @@ pub fn compare(da: &Document, a: NodeId, db: &Document, b: NodeId) -> Vec<Change
     // Depth-first work list (no recursion, so deep documents cannot overflow
     // the stack). Items are pushed in reverse so that changes come out in
     // document order.
-    let mut pending = vec![Work::Compare((a, b, "$".to_string()))];
+    let mut pending = vec![Work::Compare(a, b, "$".to_string())];
+    let mut items = Vec::new();
     while let Some(work) = pending.pop() {
         match work {
             Work::Emit(change) => out.push(change),
-            Work::Compare((a, b, path)) => {
-                let mut items = Vec::new();
+            Work::Compare(a, b, path) => {
                 compare_one(da, a, db, b, path, &mut items);
-                pending.extend(items.into_iter().rev());
+                pending.extend(items.drain(..).rev());
             }
         }
     }
@@ -56,7 +83,7 @@ pub fn compare(da: &Document, a: NodeId, db: &Document, b: NodeId) -> Vec<Change
 }
 
 enum Work {
-    Compare((NodeId, NodeId, String)),
+    Compare(NodeId, NodeId, String),
     Emit(Change),
 }
 
@@ -69,11 +96,10 @@ fn compare_one(
     out: &mut Vec<Work>,
 ) {
     let changed = |path: String| {
-        Work::Emit(Change {
-            kind: Kind::Changed,
+        Work::Emit(Change::Changed {
             path,
-            old: Some(a),
-            new: Some(b),
+            old: a,
+            new: b,
         })
     };
     let ta = da.node_type(a);
@@ -92,53 +118,39 @@ fn compare_one(
             for &ac in da.children(a) {
                 let key = da.key_text(ac);
                 let child_path = path.clone() + &da.child_path_segment(a, ac);
-                match b_index.get(&key) {
-                    Some(&bc) => out.push(Work::Compare((ac, bc, child_path))),
-                    None => out.push(Work::Emit(Change {
-                        kind: Kind::Removed,
+                out.push(match b_index.get(&key) {
+                    Some(&bc) => Work::Compare(ac, bc, child_path),
+                    None => Work::Emit(Change::Removed {
                         path: child_path,
-                        old: Some(ac),
-                        new: None,
-                    })),
-                }
+                        old: ac,
+                    }),
+                });
                 seen.insert(key);
             }
             for &bc in db.children(b) {
                 if !seen.contains(&db.key_text(bc)) {
-                    out.push(Work::Emit(Change {
-                        kind: Kind::Added,
-                        path: path.clone() + &db.child_path_segment(b, bc),
-                        old: None,
-                        new: Some(bc),
-                    }));
+                    let path = path.clone() + &db.child_path_segment(b, bc);
+                    out.push(Work::Emit(Change::Added { path, new: bc }));
                 }
             }
         }
         NodeType::Array => {
             let (ac, bc) = (da.children(a), db.children(b));
-            for i in 0..ac.len().max(bc.len()) {
-                match (ac.get(i), bc.get(i)) {
-                    (Some(&x), Some(&y)) => {
-                        out.push(Work::Compare((
-                            x,
-                            y,
-                            path.clone() + &da.child_path_segment(a, x),
-                        )));
-                    }
-                    (Some(&x), None) => out.push(Work::Emit(Change {
-                        kind: Kind::Removed,
-                        path: path.clone() + &da.child_path_segment(a, x),
-                        old: Some(x),
-                        new: None,
-                    })),
-                    (None, Some(&y)) => out.push(Work::Emit(Change {
-                        kind: Kind::Added,
-                        path: path.clone() + &db.child_path_segment(b, y),
-                        old: None,
-                        new: Some(y),
-                    })),
-                    (None, None) => unreachable!(),
-                }
+            let common = ac.len().min(bc.len());
+            for (&x, &y) in ac.iter().zip(bc) {
+                out.push(Work::Compare(
+                    x,
+                    y,
+                    path.clone() + &da.child_path_segment(a, x),
+                ));
+            }
+            for &x in &ac[common..] {
+                let path = path.clone() + &da.child_path_segment(a, x);
+                out.push(Work::Emit(Change::Removed { path, old: x }));
+            }
+            for &y in &bc[common..] {
+                let path = path.clone() + &db.child_path_segment(b, y);
+                out.push(Work::Emit(Change::Added { path, new: y }));
             }
         }
         NodeType::Number => {
@@ -229,7 +241,7 @@ impl Decimal {
 
 /// `1 changed, 2 added, 1 removed`, or `no differences`.
 pub fn summary(changes: &[Change]) -> String {
-    let count = |k: Kind| changes.iter().filter(|c| c.kind == k).count();
+    let count = |k: Kind| changes.iter().filter(|c| c.kind() == k).count();
     let parts: Vec<String> = [
         (count(Kind::Changed), "changed"),
         (count(Kind::Added), "added"),
@@ -256,7 +268,7 @@ mod tests {
         let db = parse_bytes(b.as_bytes()).unwrap();
         compare(&da, da.roots()[0], &db, db.roots()[0])
             .iter()
-            .map(|c| format!("{}{}", c.kind.symbol(), c.path))
+            .map(|c| format!("{}{}", c.kind().symbol(), c.path()))
             .collect::<Vec<_>>()
             .join(" ")
     }
