@@ -4,7 +4,6 @@ type Tokens struct {
 	Colors     ColorTokens
 	Spacing    SpacingTokens
 	Typography TypographyTokens
-	Effects    EffectTokens
 }
 
 type ColorTokens struct {
@@ -23,18 +22,12 @@ type ColorTokens struct {
 }
 
 type SpacingTokens struct {
-	Indent    int
-	InlineGap int
+	Indent int
 }
 
 type TypographyTokens struct {
 	HeaderBold   bool
 	SelectedBold bool
-}
-
-type EffectTokens struct {
-	Radius int
-	Shadow string
 }
 
 func DefaultTokens(theme string, colorEnabled bool) Tokens {
@@ -63,16 +56,11 @@ func DefaultTokens(theme string, colorEnabled bool) Tokens {
 	return Tokens{
 		Colors: colors,
 		Spacing: SpacingTokens{
-			Indent:    2,
-			InlineGap: 1,
+			Indent: 2,
 		},
 		Typography: TypographyTokens{
 			HeaderBold:   true,
 			SelectedBold: true,
-		},
-		Effects: EffectTokens{
-			Radius: 0,
-			Shadow: "none",
 		},
 	}
 }
