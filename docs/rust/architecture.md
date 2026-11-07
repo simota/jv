@@ -110,8 +110,10 @@ copy is a short child process. No async runtime, no locks.
 `view_lines()` produces styled lines; `render()` writes them into the
 ratatui buffer (no widgets), and `view()` returns plain text for tests.
 Rendering only touches the visible rows, so large documents stay
-responsive. ratatui drops control characters, so string contents cannot
-inject escape sequences into the terminal.
+responsive. Document text (keys, values, paths, the detail view) goes through
+`text::display_safe`, which shows control characters as `\u00XX` escapes
+(as the Go viewer does), so string contents cannot inject escape sequences
+into the terminal; ratatui also drops any control character left in a cell.
 
 ## Compatibility layer
 

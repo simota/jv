@@ -79,9 +79,13 @@ same input space with deterministic seeds.
   the text is passed on stdin, never as an argument.
 - Terminal injection: pipe-mode output escapes control characters (JSON
   quoting) except with `-r`, which prints raw strings by design (same as
-  Go). In the viewer, ratatui drops control characters from cells, so a
-  string containing ESC sequences cannot drive the terminal (verified).
-  The Go viewer's detail view passes raw strings to lipgloss.
+  Go). In the viewer, control characters in document text are shown as
+  `\u00XX` escapes (`tui::text::display_safe`) and ratatui drops any left
+  in a cell, so a string containing ESC sequences cannot drive the
+  terminal (verified).
+  The Go viewer used to pass raw strings to lipgloss in its detail view;
+  it now shows control characters (C0 except newline and tab, DEL, C1) as
+  `\u00XX` escapes everywhere it displays document text.
 - Denial of service: nesting limited to 10,000; memory is proportional to
   input (no size limit, as in Go); hash maps keep SipHash.
 - Dependencies: `cargo audit` clean; licenses permissive.

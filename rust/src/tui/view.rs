@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::text::{Line, Span};
 
 use super::model::{Model, Row, container_summary, is_object_member, lower};
-use super::text::{join_with_gap, line_text, styled, truncate, wrap};
+use super::text::{display_safe, join_with_gap, line_text, styled, truncate, wrap};
 use crate::json::{NodeId, NodeType, quote_string};
 
 const HELP: &[&str] = &[
@@ -92,7 +92,7 @@ impl Model {
     fn render_header(&self) -> Line<'static> {
         let (left, right) = if self.detail_mode {
             (
-                format!("jv - Value: {}", self.current_path()),
+                format!("jv - Value: {}", display_safe(&self.current_path())),
                 "[y] Copy  [Esc] Back",
             )
         } else {
@@ -117,15 +117,16 @@ impl Model {
             self.doc.depth(node)
         );
         let style = self.styles.footer;
+        if !self.search_mode && !self.status_msg.is_empty() {
+            text.push_str("  ");
+            text.push_str(&self.status_msg);
+        }
+        let mut text = display_safe(&text).into_owned();
         if self.search_mode {
             text.push_str("  Search: ");
             let mut spans = vec![styled(text, style)];
             spans.extend(self.search.view(style));
             return Line::from(spans);
-        }
-        if !self.status_msg.is_empty() {
-            text.push_str("  ");
-            text.push_str(&self.status_msg);
         }
         let line = Line::from(styled(text, style));
         if self.width > 0 {
@@ -178,7 +179,10 @@ impl Model {
         let (hl_key, hl_value) = self.highlight(node);
         if is_object_member(doc, node) {
             let key_style = if hl_key { s.matched } else { s.key };
-            spans.push(styled(quote_string(&doc.key_text(node)), key_style));
+            spans.push(styled(
+                display_safe(&quote_string(&doc.key_text(node))).into_owned(),
+                key_style,
+            ));
             spans.push(Span::raw(": "));
         }
         let children = doc.children(node);
@@ -186,7 +190,7 @@ impl Model {
             let value = if t == NodeType::Null {
                 "null".to_string()
             } else {
-                doc.string_value(node).into_owned()
+                display_safe(&doc.string_value(node)).into_owned()
             };
             let style = if hl_value {
                 s.matched

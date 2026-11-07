@@ -235,3 +235,84 @@ func TestNavigationBasics(t *testing.T) {
 		t.Fatalf("status %q", m.statusMsg)
 	}
 }
+
+// Strings from untrusted input must not reach the terminal as control
+// characters: ESC, BEL, CR or C1 codes would let a document set the window
+// title, write the clipboard (OSC 52) or overwrite what is on screen.
+func TestDetailViewEscapesControlCharacters(t *testing.T) {
+	src := `{"evil": "a\u001b]0;pwned\u0007b\rc\u009bd\u007fe\tf\ng"}`
+	root, err := parser.Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewModel(root, Options{Depth: 1})
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 20})
+	m = press(next.(Model), "j", "v")
+	if !m.detailMode {
+		t.Fatal("detail view did not open")
+	}
+	view := m.View()
+	for _, bad := range []string{"\x1b", "\x07", "\r", "\u009b", "\x7f"} {
+		if strings.Contains(view, bad) {
+			t.Errorf("detail view contains raw %q:\n%q", bad, view)
+		}
+	}
+	for _, want := range []string{`a\u001b]0;pwned\u0007b\rc\u009bd\u007fe`, "\ng"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("detail view lacks %q:\n%q", want, view)
+		}
+	}
+	// copying still yields the exact value
+	if got := m.detailCopyText(); got != "a\x1b]0;pwned\x07b\rc\u009bd\x7fe\tf\ng" {
+		t.Errorf("copy text = %q", got)
+	}
+}
+
+// The tree, header and footer show quoted keys, values and paths. JSON
+// quoting escapes C0 controls but not DEL or C1 (U+0080..U+009F), which some
+// terminals treat as control sequences (U+009B is CSI).
+func TestTreeAndFooterEscapeC1Controls(t *testing.T) {
+	src := `{"k\u009b2J": "v\u009b31m\u007f"}`
+	root, err := parser.Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewModel(root, Options{Depth: 1})
+	var copied string
+	m.copyFn = func(s string) error { copied = s; return nil }
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 80, Height: 10})
+	m = press(next.(Model), "j")
+	view := m.View()
+	for _, bad := range []string{"\u009b", "\x7f"} {
+		if strings.Contains(view, bad) {
+			t.Errorf("view contains raw %q:\n%q", bad, view)
+		}
+	}
+	for _, want := range []string{`"k\u009b2J": "v\u009b31m\u007f"`, `Path: $["k\u009b2J"]`} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view lacks %q:\n%q", want, view)
+		}
+	}
+	// the copied path is the real one, usable with jv -p
+	m = press(m, "Y")
+	if copied != "$[\"k\u009b2J\"]" {
+		t.Fatalf("copied %q", copied)
+	}
+}
+
+func TestDisplaySafe(t *testing.T) {
+	cases := map[string]string{
+		"plain":              "plain",
+		"日本語 ok":             "日本語 ok",
+		"tab\tnl\n":          "tab\tnl\n",
+		"\x1b[31m":           `\u001b[31m`,
+		"a\rb":               `a\rb`,
+		"\x00\x07\x7f":       `\u0000\u0007\u007f`,
+		"\u0085\u009f\u00a0": `\u0085\u009f` + "\u00a0",
+	}
+	for in, want := range cases {
+		if got := displaySafe(in); got != want {
+			t.Errorf("displaySafe(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

@@ -356,7 +356,7 @@ func (m *Model) matchStatus() string {
 func formatNodeValue(node *parser.Node, styles Styles) string {
 	switch node.Type {
 	case parser.TypeString:
-		return styles.String.Render(node.StringValue())
+		return styles.String.Render(displaySafe(node.StringValue()))
 	case parser.TypeNumber:
 		return styles.Number.Render(node.StringValue())
 	case parser.TypeBoolean:
