@@ -103,3 +103,14 @@ jobs:
           workspaces: rust
       - working-directory: rust
         run: cargo test --locked
+
+  audit:
+    name: dependency audit (RustSec)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - working-directory: rust
+        run: cargo audit

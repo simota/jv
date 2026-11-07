@@ -54,6 +54,20 @@ make build
 
 This produces `./jv`.
 
+### Rust version (preview)
+
+A Rust port with the same command line, output and viewer lives in
+`rust/` (Rust 1.88 or newer). It is not yet the released binary.
+
+```bash
+cd rust && cargo build --release   # produces rust/target/release/jv
+make rust-test                     # fmt, clippy and tests
+make rust-difftest                 # compares it with the Go build, byte for byte
+```
+
+Design, verification results, known differences and the switch-over plan
+are documented in `docs/rust/` (start with `migration-report.md`).
+
 ## Release
 
 Release workflow and local dry-run steps are documented in `docs/RELEASING.md`.
