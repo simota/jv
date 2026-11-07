@@ -5,6 +5,7 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/simota/jv/internal/parser"
 )
@@ -40,36 +41,27 @@ type Change struct {
 // Objects are compared by key (key order is ignored), arrays by index.
 func Compare(a, b *parser.Node) []Change {
 	changes := []Change{}
-	compare(a, b, "$", &changes)
+	path := make([]byte, 0, 128)
+	path = append(path, '$')
+	compare(a, b, path, &changes)
 	return changes
 }
 
-func compare(a, b *parser.Node, path string, out *[]Change) {
+// smallObject bounds the objects whose keys are matched by linear search
+// instead of maps (len(a.Children)*len(b.Children)).
+const smallObject = 64
+
+// compare appends the differences below a and b. path is the path of a and
+// b; it is turned into a string only when a change is recorded, and callers
+// reuse its buffer for siblings.
+func compare(a, b *parser.Node, path []byte, out *[]Change) {
 	if a.Type != b.Type {
-		*out = append(*out, Change{Kind: Changed, Path: path, Old: a, New: b})
+		*out = append(*out, Change{Kind: Changed, Path: string(path), Old: a, New: b})
 		return
 	}
 	switch a.Type {
 	case parser.TypeObject:
-		bIndex := make(map[string]*parser.Node, len(b.Children))
-		for _, child := range b.Children {
-			bIndex[child.Key] = child
-		}
-		seen := make(map[string]bool, len(a.Children))
-		for _, ac := range a.Children {
-			seen[ac.Key] = true
-			childPath := path + parser.ChildPathSegment(a, ac)
-			if bc, ok := bIndex[ac.Key]; ok {
-				compare(ac, bc, childPath, out)
-			} else {
-				*out = append(*out, Change{Kind: Removed, Path: childPath, Old: ac})
-			}
-		}
-		for _, bc := range b.Children {
-			if !seen[bc.Key] {
-				*out = append(*out, Change{Kind: Added, Path: path + parser.ChildPathSegment(b, bc), New: bc})
-			}
-		}
+		compareObjects(a, b, path, out)
 	case parser.TypeArray:
 		n := len(a.Children)
 		if len(b.Children) > n {
@@ -79,24 +71,97 @@ func compare(a, b *parser.Node, path string, out *[]Change) {
 			switch {
 			case i >= len(a.Children):
 				bc := b.Children[i]
-				*out = append(*out, Change{Kind: Added, Path: path + parser.ChildPathSegment(b, bc), New: bc})
+				*out = append(*out, Change{Kind: Added, Path: childPath(path, b, bc), New: bc})
 			case i >= len(b.Children):
 				ac := a.Children[i]
-				*out = append(*out, Change{Kind: Removed, Path: path + parser.ChildPathSegment(a, ac), Old: ac})
+				*out = append(*out, Change{Kind: Removed, Path: childPath(path, a, ac), Old: ac})
 			default:
 				ac := a.Children[i]
-				compare(ac, b.Children[i], path+parser.ChildPathSegment(a, ac), out)
+				compare(ac, b.Children[i], parser.AppendChildPathSegment(path, a, ac), out)
 			}
 		}
 	case parser.TypeNumber:
 		if !numbersEqual(a.StringValue(), b.StringValue()) {
-			*out = append(*out, Change{Kind: Changed, Path: path, Old: a, New: b})
+			*out = append(*out, Change{Kind: Changed, Path: string(path), Old: a, New: b})
+		}
+	case parser.TypeString:
+		if !stringsEqual(a, b) {
+			*out = append(*out, Change{Kind: Changed, Path: string(path), Old: a, New: b})
 		}
 	default:
 		if a.StringValue() != b.StringValue() {
-			*out = append(*out, Change{Kind: Changed, Path: path, Old: a, New: b})
+			*out = append(*out, Change{Kind: Changed, Path: string(path), Old: a, New: b})
 		}
 	}
+}
+
+func childPath(path []byte, parent, child *parser.Node) string {
+	return string(parser.AppendChildPathSegment(path, parent, child))
+}
+
+func compareObjects(a, b *parser.Node, path []byte, out *[]Change) {
+	if len(a.Children)*len(b.Children) <= smallObject {
+		for _, ac := range a.Children {
+			if bc := lastWithKey(b.Children, ac.Key); bc != nil {
+				compare(ac, bc, parser.AppendChildPathSegment(path, a, ac), out)
+			} else {
+				*out = append(*out, Change{Kind: Removed, Path: childPath(path, a, ac), Old: ac})
+			}
+		}
+		for _, bc := range b.Children {
+			if lastWithKey(a.Children, bc.Key) == nil {
+				*out = append(*out, Change{Kind: Added, Path: childPath(path, b, bc), New: bc})
+			}
+		}
+		return
+	}
+	bIndex := make(map[string]*parser.Node, len(b.Children))
+	for _, child := range b.Children {
+		bIndex[child.Key] = child
+	}
+	seen := make(map[string]bool, len(a.Children))
+	for _, ac := range a.Children {
+		seen[ac.Key] = true
+		if bc, ok := bIndex[ac.Key]; ok {
+			compare(ac, bc, parser.AppendChildPathSegment(path, a, ac), out)
+		} else {
+			*out = append(*out, Change{Kind: Removed, Path: childPath(path, a, ac), Old: ac})
+		}
+	}
+	for _, bc := range b.Children {
+		if !seen[bc.Key] {
+			*out = append(*out, Change{Kind: Added, Path: childPath(path, b, bc), New: bc})
+		}
+	}
+}
+
+// lastWithKey returns the last child with the given key (the one a map
+// built in order would keep), or nil.
+func lastWithKey(children []*parser.Node, key string) *parser.Node {
+	for i := len(children) - 1; i >= 0; i-- {
+		if children[i].Key == key {
+			return children[i]
+		}
+	}
+	return nil
+}
+
+// stringsEqual reports a.StringValue() == b.StringValue() without quoting
+// both strings: quoting maps distinct valid UTF-8 strings to distinct
+// literals, so only invalid UTF-8 (never produced by the parser) needs the
+// literal comparison.
+func stringsEqual(a, b *parser.Node) bool {
+	as, ok1 := a.Value.(string)
+	bs, ok2 := b.Value.(string)
+	if ok1 && ok2 {
+		if as == bs {
+			return true
+		}
+		if utf8.ValidString(as) && utf8.ValidString(bs) {
+			return false
+		}
+	}
+	return a.StringValue() == b.StringValue()
 }
 
 // numbersEqual treats numerically equal literals (1, 1.0, 1e0) as equal.

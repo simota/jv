@@ -4,6 +4,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
@@ -103,9 +104,12 @@ func (m *Model) rebuild() {
 }
 
 func layout(root *parser.Node) ([]*parser.Node, []int, []row) {
-	nodes := []*parser.Node{}
-	nodeRow := []int{}
-	rows := []row{}
+	// Count first so that the slices are allocated once at their final size
+	// (growing them by appending copies them repeatedly on large trees).
+	numNodes, numRows := countVisible(root)
+	nodes := make([]*parser.Node, 0, numNodes)
+	nodeRow := make([]int, 0, numNodes)
+	rows := make([]row, 0, numRows)
 	var walk func(n *parser.Node)
 	walk = func(n *parser.Node) {
 		nodes = append(nodes, n)
@@ -120,6 +124,20 @@ func layout(root *parser.Node) ([]*parser.Node, []int, []row) {
 	}
 	walk(root)
 	return nodes, nodeRow, rows
+}
+
+// countVisible returns the number of visible nodes and rows below root.
+func countVisible(root *parser.Node) (nodes, rows int) {
+	nodes, rows = 1, 1
+	if root.Expanded && len(root.Children) > 0 {
+		for _, child := range root.Children {
+			n, r := countVisible(child)
+			nodes += n
+			rows += r
+		}
+		rows++ // closing bracket
+	}
+	return nodes, rows
 }
 
 func (m *Model) ensureCursorVisible() {
@@ -145,7 +163,7 @@ func applyExpandDepth(node *parser.Node, depth int) {
 	if depth <= 0 {
 		node.Expanded = node.Parent == nil
 	} else {
-		node.Expanded = node.Depth < depth
+		node.Expanded = int(node.Depth) < depth
 	}
 	for _, child := range node.Children {
 		applyExpandDepth(child, depth)
@@ -274,17 +292,52 @@ func (m *Model) findMatches(term string) ([]*parser.Node, error) {
 	lower := strings.ToLower(term)
 	out := []*parser.Node{}
 	parser.Walk(m.tree, func(n *parser.Node) bool {
-		if n.Parent != nil && n.Parent.Type == parser.TypeObject && strings.Contains(strings.ToLower(n.Key), lower) {
+		if n.Parent != nil && n.Parent.Type == parser.TypeObject && containsFold(n.Key, lower) {
 			out = append(out, n)
 			return true
 		}
 		if len(n.Children) == 0 && n.Type != parser.TypeObject && n.Type != parser.TypeArray &&
-			strings.Contains(strings.ToLower(n.RawString()), lower) {
+			containsFold(n.RawString(), lower) {
 			out = append(out, n)
 		}
 		return true
 	})
 	return out, nil
+}
+
+// containsFold reports strings.Contains(strings.ToLower(s), lower), where
+// lower is already lower case. ASCII text (the common case) is compared
+// without building the lower-cased copy.
+func containsFold(s, lower string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= utf8.RuneSelf {
+			return strings.Contains(strings.ToLower(s), lower)
+		}
+	}
+	// s is ASCII, so its lower-cased form is ASCII too and can only contain
+	// an ASCII term.
+	for i := 0; i < len(lower); i++ {
+		if lower[i] >= utf8.RuneSelf {
+			return false
+		}
+	}
+	for i := 0; i+len(lower) <= len(s); i++ {
+		j := 0
+		for j < len(lower) && toLowerASCII(s[i+j]) == lower[j] {
+			j++
+		}
+		if j == len(lower) {
+			return true
+		}
+	}
+	return false
+}
+
+func toLowerASCII(c byte) byte {
+	if 'A' <= c && c <= 'Z' {
+		return c + ('a' - 'A')
+	}
+	return c
 }
 
 func (m *Model) setMatches(nodes []*parser.Node, label string, isPath bool) {

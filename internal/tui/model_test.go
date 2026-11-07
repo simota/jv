@@ -344,3 +344,16 @@ func TestHeaderAndHighlightEscapeControls(t *testing.T) {
 		t.Errorf("header path not escaped:\n%q", view)
 	}
 }
+
+func TestContainsFoldMatchesToLower(t *testing.T) {
+	texts := []string{"", "abc", "ABC", "User-42", "Tōkyō", "İstanbul", "KELVIN K", "straße", "x\xffy", "MiXeD CaSe"}
+	terms := []string{"", "a", "abc", "bc", "user-4", "ō", "i", "k", "K", "ss", "ß", "xy", "\xff", "mixed case", "e c", "abcd"}
+	for _, s := range texts {
+		for _, term := range terms {
+			lower := strings.ToLower(term)
+			if got, want := containsFold(s, lower), strings.Contains(strings.ToLower(s), lower); got != want {
+				t.Errorf("containsFold(%q, %q) = %v, want %v", s, lower, got, want)
+			}
+		}
+	}
+}

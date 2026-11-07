@@ -1,9 +1,24 @@
 package pipe
 
-import "github.com/simota/jv/internal/parser"
+import (
+	"bytes"
+
+	"github.com/simota/jv/internal/parser"
+)
 
 type Formatter interface {
 	Format(root *parser.Node) string
+	// FormatTo writes the same text as Format to out.
+	FormatTo(out *Writer, root *parser.Node)
+}
+
+// formatString runs FormatTo into a memory buffer.
+func formatString(f Formatter, root *parser.Node) string {
+	var buf bytes.Buffer
+	out := NewWriter(&buf)
+	f.FormatTo(out, root)
+	_ = out.Flush() // writes to a bytes.Buffer do not fail
+	return buf.String()
 }
 
 type Colorizer struct {

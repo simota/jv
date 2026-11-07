@@ -84,7 +84,7 @@ func (m Model) renderFooter() string {
 		bottom := min(m.detail.YOffset+m.detail.Height, total)
 		lines = fmt.Sprintf("Lines: %d-%d/%d", min(m.detail.YOffset+1, total), bottom, total)
 	}
-	info := displaySafe("Path: " + node.Path() + "  " + lines + "  Depth: " + strconv.Itoa(node.Depth))
+	info := displaySafe("Path: " + node.Path() + "  " + lines + "  Depth: " + strconv.Itoa(int(node.Depth)))
 	return m.styles.Footer.Render(fitFooter(info, displaySafe(m.statusMsg), m.width))
 }
 
@@ -172,7 +172,7 @@ func (m *Model) openDetail() {
 	node := m.currentNode()
 	var b strings.Builder
 	b.WriteString("Path: " + node.Path() + "\n")
-	b.WriteString("Type: " + string(node.Type))
+	b.WriteString("Type: " + node.Type.String())
 	switch node.Type {
 	case parser.TypeString:
 		raw := node.RawString()
@@ -236,7 +236,7 @@ type segment struct {
 func (m Model) renderRow(r row) string {
 	node := r.node
 	plain := lipgloss.NewStyle()
-	segs := []segment{{strings.Repeat(m.indentUnit(), node.Depth), plain}}
+	segs := []segment{{strings.Repeat(m.indentUnit(), int(node.Depth)), plain}}
 	add := func(text string, style lipgloss.Style) { segs = append(segs, segment{text, style}) }
 	comma := ""
 	if !isLast(node) {
@@ -279,7 +279,7 @@ func (m Model) renderRow(r row) string {
 	}
 	if m.showTypes {
 		add(" ", plain)
-		add("("+string(node.Type)+")", m.styles.TypeHint)
+		add("("+node.Type.String()+")", m.styles.TypeHint)
 	}
 	return m.paintRow(node, segs)
 }

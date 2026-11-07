@@ -1,9 +1,6 @@
 package pipe
 
 import (
-	"bytes"
-	"strings"
-
 	"github.com/simota/jv/internal/parser"
 )
 
@@ -29,87 +26,62 @@ func (f *PrettyFormatter) WithRaw(raw bool) *PrettyFormatter {
 	return f
 }
 
-func (f *PrettyFormatter) Format(root *parser.Node) string {
-	var buf bytes.Buffer
+func (f *PrettyFormatter) Format(root *parser.Node) string { return formatString(f, root) }
+
+func (f *PrettyFormatter) FormatTo(out *Writer, root *parser.Node) {
 	if f.raw && root.Type == parser.TypeString {
-		buf.WriteString(root.RawString())
-		buf.WriteByte('\n')
-		return buf.String()
+		out.str(root.RawString())
+		out.byte('\n')
+		out.maybeFlush()
+		return
 	}
-	f.writeNode(&buf, root, 0)
-	buf.WriteByte('\n')
-	return buf.String()
+	f.writeNode(out, root, 0)
+	out.byte('\n')
+	out.maybeFlush()
 }
 
-func (f *PrettyFormatter) writeNode(buf *bytes.Buffer, node *parser.Node, depth int) {
+func (f *PrettyFormatter) writeNode(out *Writer, node *parser.Node, depth int) {
 	switch node.Type {
 	case parser.TypeObject:
-		f.writeObject(buf, node, depth)
+		f.writeContainer(out, node, depth, '{', '}', true)
 	case parser.TypeArray:
-		f.writeArray(buf, node, depth)
+		f.writeContainer(out, node, depth, '[', ']', false)
 	default:
-		buf.WriteString(f.formatPrimitive(node))
+		if !out.primitive(f.color, node) {
+			out.str(node.StringValue())
+		}
 	}
 }
 
-func (f *PrettyFormatter) writeObject(buf *bytes.Buffer, node *parser.Node, depth int) {
-	buf.WriteString("{")
+func (f *PrettyFormatter) writeContainer(out *Writer, node *parser.Node, depth int, open, close byte, keys bool) {
+	out.byte(open)
 	if len(node.Children) == 0 {
-		buf.WriteString("}")
+		out.byte(close)
 		return
 	}
 	for i, child := range node.Children {
-		f.newline(buf, depth+1)
-		buf.WriteString(f.color.Key(parser.QuoteString(child.Key)))
-		buf.WriteString(":")
-		if !f.compact {
-			buf.WriteString(" ")
+		f.newline(out, depth+1)
+		if keys {
+			out.quotedKey(f.color, child.Key)
+			out.byte(':')
+			if !f.compact {
+				out.byte(' ')
+			}
 		}
-		f.writeNode(buf, child, depth+1)
+		f.writeNode(out, child, depth+1)
 		if i < len(node.Children)-1 {
-			buf.WriteString(",")
+			out.byte(',')
 		}
 	}
-	f.newline(buf, depth)
-	buf.WriteString("}")
+	f.newline(out, depth)
+	out.byte(close)
 }
 
-func (f *PrettyFormatter) writeArray(buf *bytes.Buffer, node *parser.Node, depth int) {
-	buf.WriteString("[")
-	if len(node.Children) == 0 {
-		buf.WriteString("]")
-		return
-	}
-	for i, child := range node.Children {
-		f.newline(buf, depth+1)
-		f.writeNode(buf, child, depth+1)
-		if i < len(node.Children)-1 {
-			buf.WriteString(",")
-		}
-	}
-	f.newline(buf, depth)
-	buf.WriteString("]")
-}
-
-func (f *PrettyFormatter) formatPrimitive(node *parser.Node) string {
-	switch node.Type {
-	case parser.TypeString:
-		return f.color.String(node.StringValue())
-	case parser.TypeNumber:
-		return f.color.Number(node.StringValue())
-	case parser.TypeBoolean:
-		return f.color.Boolean(node.StringValue())
-	case parser.TypeNull:
-		return f.color.Null("null")
-	default:
-		return node.StringValue()
-	}
-}
-
-func (f *PrettyFormatter) newline(buf *bytes.Buffer, depth int) {
+func (f *PrettyFormatter) newline(out *Writer, depth int) {
+	out.maybeFlush()
 	if f.compact {
 		return
 	}
-	buf.WriteByte('\n')
-	buf.WriteString(strings.Repeat("  ", depth))
+	out.byte('\n')
+	out.indent(2 * depth)
 }

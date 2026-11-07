@@ -1,53 +1,57 @@
 package parser
 
-import (
-	"bytes"
-	"strings"
-)
-
 // Marshal encodes the node as JSON preserving key order. An empty indent
 // produces compact output.
 func Marshal(node *Node, indent string) string {
-	var buf bytes.Buffer
-	writeJSON(&buf, node, indent, 0)
-	return buf.String()
+	return string(AppendJSON(nil, node, indent))
 }
 
-func writeJSON(buf *bytes.Buffer, node *Node, indent string, depth int) {
+// AppendJSON appends Marshal(node, indent) to dst.
+func AppendJSON(dst []byte, node *Node, indent string) []byte {
+	return appendJSON(dst, node, indent, 0)
+}
+
+func appendJSON(dst []byte, node *Node, indent string, depth int) []byte {
 	switch node.Type {
 	case TypeObject, TypeArray:
-		open, close := "{", "}"
+		open, close := byte('{'), byte('}')
 		if node.Type == TypeArray {
-			open, close = "[", "]"
+			open, close = '[', ']'
 		}
-		buf.WriteString(open)
+		dst = append(dst, open)
 		if len(node.Children) == 0 {
-			buf.WriteString(close)
-			return
+			return append(dst, close)
 		}
 		for i, child := range node.Children {
 			if i > 0 {
-				buf.WriteByte(',')
+				dst = append(dst, ',')
 			}
 			if indent != "" {
-				buf.WriteByte('\n')
-				buf.WriteString(strings.Repeat(indent, depth+1))
+				dst = append(dst, '\n')
+				dst = appendRepeat(dst, indent, depth+1)
 			}
 			if node.Type == TypeObject {
-				buf.WriteString(QuoteString(child.Key))
-				buf.WriteByte(':')
+				dst = AppendQuoted(dst, child.Key)
+				dst = append(dst, ':')
 				if indent != "" {
-					buf.WriteByte(' ')
+					dst = append(dst, ' ')
 				}
 			}
-			writeJSON(buf, child, indent, depth+1)
+			dst = appendJSON(dst, child, indent, depth+1)
 		}
 		if indent != "" {
-			buf.WriteByte('\n')
-			buf.WriteString(strings.Repeat(indent, depth))
+			dst = append(dst, '\n')
+			dst = appendRepeat(dst, indent, depth)
 		}
-		buf.WriteString(close)
+		return append(dst, close)
 	default:
-		buf.WriteString(node.StringValue())
+		return AppendStringValue(dst, node)
 	}
+}
+
+func appendRepeat(dst []byte, s string, n int) []byte {
+	for ; n > 0; n-- {
+		dst = append(dst, s...)
+	}
+	return dst
 }

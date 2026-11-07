@@ -1,7 +1,7 @@
 package pipe
 
 import (
-	"strings"
+	"bytes"
 
 	"github.com/simota/jv/internal/diff"
 	"github.com/simota/jv/internal/parser"
@@ -13,22 +13,41 @@ import (
 //	+ $.tags[3]: "new"
 //	- $.legacy: {"a":1}
 func FormatDiff(changes []diff.Change, colorEnabled bool) string {
+	var buf bytes.Buffer
+	out := NewWriter(&buf)
+	FormatDiffTo(out, changes, colorEnabled)
+	_ = out.Flush() // writes to a bytes.Buffer do not fail
+	return buf.String()
+}
+
+// FormatDiffTo writes the text of FormatDiff to out.
+func FormatDiffTo(out *Writer, changes []diff.Change, colorEnabled bool) {
 	c := Colorizer{Enabled: colorEnabled}
-	var b strings.Builder
 	for _, ch := range changes {
-		line := ch.Kind.Symbol() + " " + ch.Path + ": "
+		code := codeChanged
 		switch ch.Kind {
 		case diff.Added:
-			line += parser.Marshal(ch.New, "")
-			b.WriteString(c.wrap(32, line))
+			code = codeAdded
 		case diff.Removed:
-			line += parser.Marshal(ch.Old, "")
-			b.WriteString(c.wrap(31, line))
-		default:
-			line += parser.Marshal(ch.Old, "") + " -> " + parser.Marshal(ch.New, "")
-			b.WriteString(c.wrap(33, line))
+			code = codeRemoved
 		}
-		b.WriteByte('\n')
+		out.open(c, code)
+		out.str(ch.Kind.Symbol())
+		out.byte(' ')
+		out.str(ch.Path)
+		out.str(": ")
+		switch ch.Kind {
+		case diff.Added:
+			out.buf = parser.AppendJSON(out.buf, ch.New, "")
+		case diff.Removed:
+			out.buf = parser.AppendJSON(out.buf, ch.Old, "")
+		default:
+			out.buf = parser.AppendJSON(out.buf, ch.Old, "")
+			out.str(" -> ")
+			out.buf = parser.AppendJSON(out.buf, ch.New, "")
+		}
+		out.close(c)
+		out.byte('\n')
+		out.maybeFlush()
 	}
-	return b.String()
 }
