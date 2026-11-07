@@ -1,0 +1,116 @@
+name: rust
+
+# Checks the Rust port in rust/. The Go implementation stays the released
+# version until the switch-over (see docs/rust/migration-report.md); its tests
+# also run here because the Rust build is verified against it.
+
+on:
+  push:
+    paths:
+      - "rust/**"
+      - "cmd/**"
+      - "internal/**"
+      - "testdata/**"
+      - "go.mod"
+      - "go.sum"
+      - ".github/workflows/rust.yml"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: lint, test, differential (linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Go tests (reference implementation)
+        run: go test ./...
+
+      - name: Build the Go reference binary
+        run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/jv-go" ./cmd/jv
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+
+      - name: cargo fmt
+        working-directory: rust
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        working-directory: rust
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      - name: cargo doc
+        working-directory: rust
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --locked --no-deps
+
+      - name: cargo test (unit, CLI, property, differential vs Go)
+        working-directory: rust
+        env:
+          JV_GO_BIN: ${{ runner.temp }}/jv-go
+          JV_DIFF_CASES: "2000"
+          JV_PROP_CASES: "10000"
+        run: cargo test --locked --release
+
+      - name: Release build
+        working-directory: rust
+        run: cargo build --locked --release
+
+  msrv:
+    name: MSRV (1.88)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.88"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - working-directory: rust
+        run: cargo test --locked
+
+  platforms:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust
+      - working-directory: rust
+        run: cargo test --locked
+
+  audit:
+    name: dependency audit (RustSec)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-audit
+      - working-directory: rust
+        run: cargo audit

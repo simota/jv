@@ -1,0 +1,26 @@
+[package]
+name = "jv"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.88"
+description = "A simple JSON viewer: pretty printing, path extraction, schema inference, structural diff and an interactive TUI"
+repository = "https://github.com/simota/jv"
+publish = false
+default-run = "jv"
+
+[lib]
+name = "jv"
+path = "src/lib.rs"
+
+[[bin]]
+name = "jv"
+path = "src/main.rs"
+
+[dependencies]
+ratatui = { version = "0.30", default-features = false, features = ["crossterm"] }
+unicode-width = "0.2"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
