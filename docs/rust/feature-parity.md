@@ -20,7 +20,7 @@ stderr, exit status (and `2>&1` order where checked) — see
 | F10 | `-f` flat `path = value` | pipe/flat.go | P1 | Rust | identical bytes; paths resolve back | format/flat.rs | done | PASS |
 | F11 | `-t` typed tree | pipe/typed.go | P2 | Rust | identical bytes | format/typed.rs | done | PASS |
 | F12 | `-s` schema, merged across elements/documents | pipe/schema.go | P1 | Rust | identical bytes | format/schema.rs | done | PASS |
-| F13 | `--diff` (files/stdin, `-p`, colors, summary, exit 1) | diff/diff.go, pipe/diff.go, cli/root.go | P1 | Rust | identical output and status | diff.rs, format/diff.rs, cli/mod.rs | done | PASS (differential incl. stream order); see D1 |
+| F13 | `--diff` (files/stdin, `-p`, colors, summary, exit 1) | diff/diff.go, pipe/diff.go, cli/root.go | P1 | Rust | identical output and status | diff.rs, format/diff.rs, cli/mod.rs | done | PASS (differential incl. stream order); D1 resolved |
 | F14 | CLI flags (pflag syntax, values, errors), help, usage, exit codes | cli/root.go (cobra/pflag) | P0 | Rust | identical bytes | cli/flags.rs, args.rs, help.rs, mod.rs | done | PASS (unit, integration, differential table of 67 command lines) |
 | F15 | Input: file, stdin, `-`, terminal detection, file errors | cli/root.go | P0 | Rust | identical messages on Linux | cli/mod.rs | done | PASS (Linux locally; test suite also PASS on macOS and Windows in CI) |
 | F16 | TUI navigation, expand/collapse, depth, paging | tui/model.go, update.go | P1 | Rust | same screens and cursor | tui/model.rs, view.rs | done | PASS (ported unit tests + pty comparison) |
@@ -37,7 +37,7 @@ stderr, exit status (and `2>&1` order where checked) — see
 
 | # | Difference | Why | Impact |
 |---|---|---|---|
-| D1 | `--diff` compares numbers exactly; Go treats literals equal when they agree to 64-bit binary precision (`1.00000000000000000001` vs `1`: Go "equal", Rust "changed") | Go behaviour is precision loss, not a design decision | only literals with >19 significant digits; reported as a change instead of silently equal |
+| D1 | **Resolved.** `--diff` used to treat literals as equal in Go when they agreed to 64-bit binary precision (`1.00000000000000000001` vs `1`: Go "equal", Rust "changed"). Go now compares numbers exactly with the same rule as Rust (`internal/diff`, `numbersEqual`) | Go behaviour was precision loss, not a design decision | none: both report a change |
 | D2 | `JV_COMPLETION_DESCRIPTIONS=false` disables descriptions everywhere; in Go it only works under `jv __complete completion …` (cobra drops `__complete` from jv's root while completing, so it reads `__COMPLETE_COMPLETION_DESCRIPTIONS`) | follow cobra's documented behaviour, not the bug | only users setting that variable |
 | D3 | Broken pipe: Rust exits with status 141 and no message; Go dies from SIGPIPE | Rust ignores SIGPIPE; 141 is what shells report for Go | `WIFSIGNALED` callers see an exit instead of a signal |
 | D4 | The selected TUI line is highlighted across its full width | Go's highlight stops at the first colored span (lipgloss reset) | visual only |

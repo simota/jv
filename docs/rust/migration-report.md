@@ -19,7 +19,8 @@ The whole Go implementation, unchanged, for two reasons:
 ## Switch-over plan (proposal)
 
 1. **Review** the deviations D1–D11 (`feature-parity.md`) and accept or
-   request changes (D1 and D2 are behaviour changes; the rest are minor).
+   request changes (D2 is a behaviour change; D1 has since been resolved
+   by fixing Go; the rest are minor).
 2. **Pre-release**: add a release job that builds the Rust binary for the
    same six targets (`x86_64`/`aarch64` × linux-musl or gnu, apple-darwin,
    pc-windows-msvc) with the same archive names
