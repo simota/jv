@@ -25,7 +25,9 @@ func NewStyles(tokens Tokens) Styles {
 		Boolean:  base,
 		Null:     base,
 		TypeHint: base,
-		Selected: base.Bold(tokens.Typography.SelectedBold),
+		// Without color the cursor row is drawn in reverse video so it stays
+		// visible on monochrome terminals and with NO_COLOR.
+		Selected: base.Bold(tokens.Typography.SelectedBold).Reverse(true),
 		Header:   base.Bold(tokens.Typography.HeaderBold),
 		Footer:   base,
 		Help:     base,

@@ -484,3 +484,200 @@ fn detail_view_expands_tabs() {
     let view = m.view();
     assert!(view.contains("x    y") && !view.contains('\t'), "{view:?}");
 }
+
+// Layout audit: every screen mode over a grid of terminal sizes. The frame
+// may not be taller than the terminal (the header would scroll away), no
+// line may be wider (it would be clipped), the selection must cover the
+// whole cursor row and a transient status must stay readable.
+
+const AUDIT_SIZES: &[(usize, usize)] = &[
+    (20, 6),
+    (30, 10),
+    (40, 12),
+    (48, 24),
+    (60, 20),
+    (80, 24),
+    (120, 40),
+];
+
+#[derive(Default, Debug)]
+struct Audit {
+    frames: usize,
+    defective: usize,
+    too_tall: usize,
+    overwide: usize,
+    hidden_status: usize,
+    partial_selection: usize,
+    problems: Vec<String>,
+}
+
+fn resized(opts: Options, w: usize, h: usize) -> Model {
+    let (mut m, _) = new_model(opts);
+    m.update(Msg::Resize {
+        width: w as u16,
+        height: h as u16,
+    });
+    m
+}
+
+fn run_layout_audit() -> Audit {
+    let mut a = Audit::default();
+    let opts = || Options {
+        depth: 3,
+        color: true,
+        ..Options::default()
+    };
+    for &(w, h) in AUDIT_SIZES {
+        let mut frames: Vec<(String, Model)> = Vec::new();
+        let tag = format!("{w}x{h}");
+        let base = || resized(opts(), w, h);
+        let deep = || {
+            let mut m = base();
+            type_search(&mut m, "found me");
+            m
+        };
+        frames.push((format!("normal {tag}"), base()));
+        let mut m = base();
+        press(&mut m, &["j"]);
+        frames.push((format!("cursor-row {tag}"), m));
+        let mut m = base();
+        press(&mut m, &["?"]);
+        frames.push((format!("help {tag}"), m));
+        let mut m = deep();
+        press(&mut m, &["/"]);
+        frames.push((format!("search {tag}"), m));
+        let mut m = deep();
+        press(&mut m, &["v"]);
+        frames.push((format!("detail {tag}"), m));
+        let mut m = deep();
+        press(&mut m, &["y"]);
+        frames.push((format!("status {tag}"), m));
+
+        for (name, m) in frames {
+            a.frames += 1;
+            let before = a.problems.len();
+            let lines = m.view_lines();
+            if lines.len() > h {
+                a.too_tall += 1;
+                a.problems.push(format!("{name}: {} lines", lines.len()));
+            }
+            for (i, l) in lines.iter().enumerate() {
+                let lw = text::line_width(l);
+                if lw > w {
+                    a.overwide += 1;
+                    a.problems.push(format!("{name}: line {i} is {lw} cells"));
+                }
+            }
+            let footer = text::line_text(lines.last().unwrap());
+            if name.starts_with("status")
+                && !m.status().is_empty()
+                && text::width(m.status()) <= w
+                && !footer.contains(m.status())
+            {
+                a.hidden_status += 1;
+                a.problems
+                    .push(format!("{name}: status {:?} not visible", m.status()));
+            }
+            if name.starts_with("cursor-row") {
+                let sel = &lines[m.node_row[m.cursor] - m.y_offset + 1];
+                let bg = |s: &ratatui::text::Span<'_>| s.style.bg.or(sel.style.bg);
+                if sel
+                    .spans
+                    .iter()
+                    .any(|s| !s.content.is_empty() && bg(s).is_none())
+                {
+                    a.partial_selection += 1;
+                    a.problems
+                        .push(format!("{name}: selection does not cover the row"));
+                }
+            }
+            if a.problems.len() > before {
+                a.defective += 1;
+            }
+        }
+    }
+    a
+}
+
+#[test]
+fn layout_audit() {
+    let a = run_layout_audit();
+    eprintln!(
+        "frames={} defective={} too_tall={} overwide={} hidden_status={} partial_selection={}",
+        a.frames, a.defective, a.too_tall, a.overwide, a.hidden_status, a.partial_selection
+    );
+    assert!(a.problems.is_empty(), "{:#?}", a.problems);
+}
+
+#[test]
+fn fit_header_keeps_key_hints() {
+    use super::view::fit_header;
+    let h = |w| fit_header("jv - JSON Viewer", "[/] Search", w);
+    assert_eq!(h(0), "jv - JSON Viewer  [/] Search");
+    assert_eq!(h(24), "jv - JSON Vi… [/] Search");
+    assert_eq!(h(20), "jv - JSO… [/] Search");
+    assert_eq!(h(17), "jv - JSON Viewer"); // too narrow for the hints
+    assert_eq!(h(10), "jv - JSON…");
+}
+
+#[test]
+fn fit_footer_keeps_status() {
+    use super::view::fit_footer;
+    let info = "Path: $.a.b.c  Lines: 3/9  Depth: 3";
+    assert_eq!(fit_footer(info, "", 20), "Path: $.a.b.c  Line…");
+    assert_eq!(
+        fit_footer(info, "Copied value", 30),
+        "Path: $.a.b.c  …  Copied value"
+    );
+    assert_eq!(fit_footer(info, "Copied value", 13), "Copied value");
+    assert_eq!(fit_footer(info, "Copied value", 8), "Copied …");
+    assert_eq!(fit_footer(info, "ok", 0), format!("{info}  ok"));
+}
+
+#[test]
+fn detail_footer_shows_scroll_position() {
+    let mut m = resized(depth(1), 40, 6);
+    press(&mut m, &["G", "v"]);
+    let total = m.detail_lines.len();
+    let footer = |m: &Model| text::line_text(m.view_lines().last().unwrap());
+    assert!(
+        footer(&m).contains(&format!("Lines: 1-4/{total}")),
+        "{}",
+        footer(&m)
+    );
+    press(&mut m, &["j"]);
+    assert!(
+        footer(&m).contains(&format!("Lines: 2-5/{total}")),
+        "{}",
+        footer(&m)
+    );
+}
+
+#[test]
+fn cursor_row_is_reverse_video_without_color() {
+    use ratatui::style::Modifier;
+    let plain = super::styles::Styles::new(Theme::Dark, false);
+    assert!(
+        plain
+            .selected
+            .add_modifier
+            .contains(Modifier::REVERSED | Modifier::BOLD)
+    );
+    let colored = super::styles::Styles::new(Theme::Dark, true);
+    assert!(!colored.selected.add_modifier.contains(Modifier::REVERSED));
+}
+
+// Cursor keys skip the layout pass; the rows must still follow every
+// expand/collapse that came before them.
+#[test]
+fn cursor_keys_follow_expand_state() {
+    let (mut m, _) = new_model(depth(1));
+    press(&mut m, &["o", "G"]);
+    assert_eq!(m.current_path(), "$.long");
+    assert_eq!(m.cursor, m.flat_nodes.len() - 1);
+    press(&mut m, &["g", "j", "j", "l", "j"]);
+    assert_eq!(m.current_path(), "$.deep.level1");
+    press(&mut m, &["O", "G"]);
+    assert_eq!(m.current_path(), "$.long");
+    assert_eq!(m.flat_nodes.len(), 6);
+}

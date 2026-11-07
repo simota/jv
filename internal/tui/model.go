@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/textinput"
 	"github.com/charmbracelet/bubbles/viewport"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/simota/jv/internal/parser"
 )
 
@@ -65,7 +66,7 @@ func NewModel(root *parser.Node, opts Options) Model {
 	search := textinput.New()
 	search.Placeholder = "text or $.path"
 	search.CharLimit = 256
-	search.Width = 30
+	search.Width = searchInputWidth(0)
 
 	m := Model{
 		tree:      root,
@@ -353,18 +354,17 @@ func (m *Model) matchStatus() string {
 	return "Match " + strconv.Itoa(m.matchIdx+1) + "/" + strconv.Itoa(len(m.matches)) + ": " + m.matchLabel + "  (n/N)"
 }
 
-func formatNodeValue(node *parser.Node, styles Styles) string {
+// valueStyle is the syntax color of a scalar value.
+func (m Model) valueStyle(node *parser.Node) lipgloss.Style {
 	switch node.Type {
 	case parser.TypeString:
-		return styles.String.Render(displaySafe(node.StringValue()))
+		return m.styles.String
 	case parser.TypeNumber:
-		return styles.Number.Render(node.StringValue())
+		return m.styles.Number
 	case parser.TypeBoolean:
-		return styles.Boolean.Render(node.StringValue())
-	case parser.TypeNull:
-		return styles.Null.Render("null")
+		return m.styles.Boolean
 	default:
-		return ""
+		return m.styles.Null
 	}
 }
 

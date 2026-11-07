@@ -22,6 +22,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.bodyHeight = available
 		m.detail.Width = size.Width
 		m.detail.Height = available
+		m.search.Width = searchInputWidth(size.Width)
 		if m.detailMode {
 			m.openDetail()
 		}
@@ -90,7 +91,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case "g", "home":
 		m.cursor = 0
 	case "G", "end":
-		m.flatNodes = flattenVisible(m.tree)
 		m.cursor = len(m.flatNodes) - 1
 	case "y":
 		m.copy(m.currentNodeJSON(), "value")
@@ -143,8 +143,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 	}
-	m.rebuild()
+	if keepsLayout[key.String()] {
+		m.ensureCursorVisible()
+	} else {
+		m.rebuild()
+	}
 	return m, nil
+}
+
+// keepsLayout lists the keys that move, copy or toggle hints without
+// expanding or collapsing anything, so they skip the O(visible nodes)
+// layout pass.
+var keepsLayout = map[string]bool{
+	"up": true, "k": true, "down": true, "j": true,
+	"pgup": true, "ctrl+u": true, "pgdown": true, "ctrl+d": true,
+	"g": true, "home": true, "G": true, "end": true,
+	"y": true, "Y": true, "t": true, "esc": true,
 }
 
 func visible(n *parser.Node) bool {

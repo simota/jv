@@ -2,7 +2,7 @@ use ratatui::Frame;
 use ratatui::text::{Line, Span};
 
 use super::model::{Model, Row, container_summary, is_object_member, lower};
-use super::text::{display_safe, join_with_gap, line_text, styled, truncate, wrap};
+use super::text::{display_safe, join_with_gap, line_text, styled, truncate, width, wrap};
 use crate::json::{NodeId, NodeType, quote_string};
 
 const HELP: &[&str] = &[
@@ -24,6 +24,63 @@ const HELP: &[&str] = &[
     "",
     "Press any key to close help, q to quit.",
 ];
+
+/// Replaces the last visible help line when the help does not fit.
+const HELP_MORE: &str = "… (enlarge the window to see all keys)";
+
+const SEARCH_PROMPT: &str = "Search: ";
+
+/// The fewest cells left for the title before the key hints are dropped
+/// from a narrow header.
+const MIN_HEADER_TITLE: usize = 8;
+
+/// `left` and `right` on one line of `max` cells. When they do not fit,
+/// `left` is shortened first so the key hints stay visible; on very narrow
+/// screens only `left` is shown.
+pub(super) fn fit_header(left: &str, right: &str, max: usize) -> String {
+    if max == 0 || width(left) + 1 + width(right) <= max {
+        return join_with_gap(left, right, max);
+    }
+    let budget = max.saturating_sub(width(right) + 1);
+    if budget >= MIN_HEADER_TITLE {
+        return join_with_gap(&truncate_str(left, budget, "…"), right, max);
+    }
+    truncate_str(left, max, "…")
+}
+
+/// The position info and the status message on one line of `max` cells.
+/// The status is feedback for the last key press, so the info is shortened
+/// first to keep it readable.
+pub(super) fn fit_footer(info: &str, status: &str, max: usize) -> String {
+    if status.is_empty() {
+        return if max > 0 {
+            truncate_str(info, max, "…")
+        } else {
+            info.to_string()
+        };
+    }
+    let full = format!("{info}  {status}");
+    if max == 0 || width(&full) <= max {
+        return full;
+    }
+    match max.checked_sub(width(status) + 2) {
+        Some(avail) if avail >= 2 => format!("{}  {status}", truncate_str(info, avail, "…")),
+        _ => truncate_str(status, max, "…"),
+    }
+}
+
+/// Width of the search field that fits the footer next to the prompt
+/// (`Search: > ` and the cursor cell).
+pub(super) fn search_input_width(max: usize) -> usize {
+    if max == 0 {
+        return 30;
+    }
+    max.saturating_sub(width(SEARCH_PROMPT) + 2 + 1).max(1)
+}
+
+fn truncate_str(s: &str, max: usize, tail: &str) -> String {
+    line_text(&truncate(Line::raw(s.to_string()), max, tail))
+}
 
 impl Model {
     /// Every line of the screen: header, body (or help/detail) and footer.
@@ -102,45 +159,63 @@ impl Model {
             )
         };
         Line::from(styled(
-            join_with_gap(&left, right, self.width),
+            fit_header(&left, right, self.width),
             self.styles.header,
         ))
     }
 
     fn render_footer(&self) -> Line<'static> {
-        let node = self.current_node();
-        let mut text = format!(
-            "Path: {}  Lines: {}/{}  Depth: {}",
-            self.doc.path(node),
-            self.cursor + 1,
-            self.flat_nodes.len(),
-            self.doc.depth(node)
-        );
         let style = self.styles.footer;
-        if !self.search_mode && !self.status_msg.is_empty() {
-            text.push_str("  ");
-            text.push_str(&self.status_msg);
-        }
-        let mut text = display_safe(&text).into_owned();
         if self.search_mode {
-            text.push_str("  Search: ");
-            let mut spans = vec![styled(text, style)];
+            let mut spans = vec![styled(SEARCH_PROMPT, style)];
             spans.extend(self.search.view(style));
             return Line::from(spans);
         }
-        let line = Line::from(styled(text, style));
-        if self.width > 0 {
-            truncate(line, self.width, "…")
+        let node = self.current_node();
+        let lines = if self.detail_mode {
+            let total = self.detail_lines.len();
+            let bottom = (self.detail_offset + self.body_height).min(total);
+            format!(
+                "Lines: {}-{bottom}/{total}",
+                (self.detail_offset + 1).min(total)
+            )
         } else {
-            line
-        }
+            format!("Lines: {}/{}", self.cursor + 1, self.flat_nodes.len())
+        };
+        let info = format!(
+            "Path: {}  {lines}  Depth: {}",
+            self.doc.path(node),
+            self.doc.depth(node)
+        );
+        let text = fit_footer(
+            &display_safe(&info),
+            &display_safe(&self.status_msg),
+            self.width,
+        );
+        Line::from(styled(text, style))
     }
 
+    /// The key reference, wrapped to the width and cut to the body height so
+    /// the header and footer stay on screen.
     fn render_help(&self) -> Vec<Line<'static>> {
-        let content = HELP.join("\n");
-        wrap(&content, self.width)
+        let mut lines = wrap(&HELP.join("\n"), self.width);
+        if self.body_height > 0 {
+            if lines.len() > self.body_height {
+                lines.truncate(self.body_height - 1);
+                lines.push(HELP_MORE.to_string());
+            }
+            lines.resize(self.body_height, String::new());
+        }
+        lines
             .into_iter()
-            .map(|l| Line::from(styled(l, self.styles.help)))
+            .map(|l| {
+                let line = Line::from(styled(l.trim_end().to_string(), self.styles.help));
+                if self.width > 0 {
+                    truncate(line, self.width, "")
+                } else {
+                    line
+                }
+            })
             .collect()
     }
 

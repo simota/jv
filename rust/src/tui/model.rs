@@ -3,6 +3,7 @@ use std::collections::HashSet;
 
 use super::input::TextInput;
 use super::styles::Styles;
+use super::view::search_input_width;
 use super::{Key, Msg, Options, clipboard};
 use crate::json::{Document, NodeId, NodeType, marshal};
 use crate::path::Query;
@@ -82,7 +83,7 @@ impl Model {
             status_msg: String::new(),
             search_mode: false,
             help_mode: false,
-            search: TextInput::new("text or $.path", 256, 30),
+            search: TextInput::new("text or $.path", 256, search_input_width(0)),
             matches: Vec::new(),
             match_set: HashSet::new(),
             match_idx: 0,
@@ -405,6 +406,7 @@ impl Model {
                 self.width = width.into();
                 self.height = height.into();
                 self.body_height = self.height.saturating_sub(2).max(1);
+                self.search.width = search_input_width(self.width);
                 if self.detail_mode {
                     self.open_detail();
                 }
@@ -431,6 +433,20 @@ impl Model {
             self.help_mode = false;
             return Command::None;
         }
+        // Moving, copying and toggling hints leave every node's expanded
+        // state alone, so they skip the O(visible nodes) layout pass.
+        let relayout = !matches!(
+            key,
+            Key::Up
+                | Key::Char('k' | 'j' | 'g' | 'G' | 'y' | 'Y' | 't')
+                | Key::Down
+                | Key::PageUp
+                | Key::PageDown
+                | Key::Ctrl('u' | 'd')
+                | Key::Home
+                | Key::End
+                | Key::Esc
+        );
         match key {
             Key::Ctrl('c') | Key::Char('q') => return Command::Quit,
             Key::Up | Key::Char('k') => self.move_cursor(-1),
@@ -471,10 +487,7 @@ impl Model {
             Key::Char('o') => self.expand_all(true),
             Key::Char('O') => self.expand_all(false),
             Key::Char('g') | Key::Home => self.cursor = 0,
-            Key::Char('G') | Key::End => {
-                self.layout();
-                self.cursor = self.flat_nodes.len().saturating_sub(1);
-            }
+            Key::Char('G') | Key::End => self.cursor = self.flat_nodes.len().saturating_sub(1),
             Key::Char('y') => {
                 let json = marshal(&self.doc, self.current_node(), "  ");
                 self.copy(&json, "value");
@@ -540,7 +553,11 @@ impl Model {
             }
             _ => {}
         }
-        self.rebuild();
+        if relayout {
+            self.rebuild();
+        } else {
+            self.ensure_cursor_visible();
+        }
         Command::None
     }
 

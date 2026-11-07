@@ -2,7 +2,8 @@ use ratatui::style::{Color, Modifier, Style};
 
 use super::Theme;
 
-/// Styles of the viewer. Without color only bold/underline are used.
+/// Styles of the viewer. Without color only bold, underline and reverse
+/// video are used.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Styles {
     pub key: Style,
@@ -22,8 +23,10 @@ impl Styles {
     pub fn new(theme: Theme, color: bool) -> Styles {
         let bold = Style::new().add_modifier(Modifier::BOLD);
         if !color {
+            // Reverse video keeps the cursor row visible on monochrome
+            // terminals and with NO_COLOR.
             return Styles {
-                selected: bold,
+                selected: bold.add_modifier(Modifier::REVERSED),
                 header: bold,
                 matched: Style::new().add_modifier(Modifier::UNDERLINED),
                 ..Styles::default()
