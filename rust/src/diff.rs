@@ -86,11 +86,11 @@ fn compare_one(
             let b_index: HashMap<_, NodeId> = db
                 .children(b)
                 .iter()
-                .map(|&c| (db.key(c).as_text(), c))
+                .map(|&c| (db.key_text(c), c))
                 .collect();
             let mut seen = HashSet::with_capacity(da.children(a).len());
             for &ac in da.children(a) {
-                let key = da.key(ac).as_text();
+                let key = da.key_text(ac);
                 let child_path = path.clone() + &da.child_path_segment(a, ac);
                 match b_index.get(&key) {
                     Some(&bc) => out.push(Work::Compare((ac, bc, child_path))),
@@ -104,7 +104,7 @@ fn compare_one(
                 seen.insert(key);
             }
             for &bc in db.children(b) {
-                if !seen.contains(&db.key(bc).as_text()) {
+                if !seen.contains(&db.key_text(bc)) {
                     out.push(Work::Emit(Change {
                         kind: Kind::Added,
                         path: path.clone() + &db.child_path_segment(b, bc),

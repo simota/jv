@@ -10,7 +10,7 @@
 use std::fmt;
 
 use crate::gostr;
-use crate::json::{Document, Key, NodeId, NodeType, unquote};
+use crate::json::{Document, NodeId, NodeType, unquote};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 enum Segment {
@@ -158,7 +158,7 @@ impl Query {
                         }
                         if let Some(&c) = children
                             .iter()
-                            .find(|&&c| matches!(doc.key(c), Key::Name(n) if **n == **k))
+                            .find(|&&c| doc.member_name(c) == Some(k.as_str()))
                         {
                             next.push(c);
                         }

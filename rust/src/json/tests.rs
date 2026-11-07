@@ -9,7 +9,7 @@ fn parse_one(s: &str) -> (Document, NodeId) {
 fn keys(doc: &Document, id: NodeId) -> String {
     doc.children(id)
         .iter()
-        .map(|&c| doc.key(c).as_text().into_owned())
+        .map(|&c| doc.key_text(c).into_owned())
         .collect::<Vec<_>>()
         .join(",")
 }
@@ -29,7 +29,7 @@ fn duplicate_keys_last_wins_first_position() {
     let (doc, root) = parse_one(r#"{"a":1,"b":2,"a":3}"#);
     let ch = doc.children(root);
     assert_eq!(ch.len(), 2);
-    assert_eq!(doc.key(ch[0]).as_text(), "a");
+    assert_eq!(doc.key_text(ch[0]), "a");
     assert_eq!(doc.string_value(ch[0]), "3");
     assert_eq!(doc.parent(ch[0]), Some(root));
 }
@@ -265,7 +265,7 @@ fn walk_skips_children_when_asked() {
     let mut seen = Vec::new();
     doc.walk(root, |n| {
         seen.push(doc.path(n));
-        doc.key(n).as_text() != "a"
+        doc.key_text(n) != "a"
     });
     assert_eq!(seen, ["$", "$.a", "$.c"]);
 }

@@ -2,7 +2,7 @@
 //!
 //! The library exposes the building blocks used by the `jv` binary:
 //! an order-preserving JSON [parser](json), [path queries](path),
-//! [structural diffs](diff), output [formatters](format), the
+//! [structural diffs](diff), output [formatters](mod@format), the
 //! [command line](cli) and the interactive [viewer](tui).
 
 pub mod cli;

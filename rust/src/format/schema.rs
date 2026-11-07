@@ -150,7 +150,7 @@ impl Schema {
                 let o = self.object.get_or_insert_with(ObjectSchema::default);
                 o.count += 1;
                 for &child in doc.children(id) {
-                    let key = doc.key(child).as_text();
+                    let key = doc.key_text(child);
                     let i = match o.index.get(key.as_ref()) {
                         Some(&i) => i,
                         None => {

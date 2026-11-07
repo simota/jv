@@ -82,7 +82,7 @@ fn write_json(out: &mut String, doc: &Document, id: NodeId, indent: &str, depth:
         NodeType::Object => ('{', '}'),
         NodeType::Array => ('[', ']'),
         _ => {
-            write_scalar(out, &node.value);
+            write_scalar(out, doc, &node.value);
             return;
         }
     };
@@ -101,7 +101,7 @@ fn write_json(out: &mut String, doc: &Document, id: NodeId, indent: &str, depth:
             push_indent(out, indent, depth + 1);
         }
         if is_object {
-            write_quoted(out, &doc.key(child).as_text());
+            write_quoted(out, &doc.key_text(child));
             out.push(':');
             if !indent.is_empty() {
                 out.push(' ');
@@ -116,10 +116,10 @@ fn write_json(out: &mut String, doc: &Document, id: NodeId, indent: &str, depth:
     out.push(close);
 }
 
-pub(crate) fn write_scalar(out: &mut String, value: &Value) {
-    match value {
-        Value::String(s) => write_quoted(out, s),
-        Value::Number(n) => out.push_str(n),
+pub(crate) fn write_scalar(out: &mut String, doc: &Document, value: &Value) {
+    match *value {
+        Value::String(s) => write_quoted(out, doc.text(s)),
+        Value::Number(n) => out.push_str(doc.text(n)),
         Value::Bool(true) => out.push_str("true"),
         Value::Bool(false) => out.push_str("false"),
         Value::Null => out.push_str("null"),

@@ -248,6 +248,9 @@ fn run_diff(
         .write_all(out.as_bytes())
         .map_err(write_failure)?;
     if !changes.is_empty() {
+        // stdout is buffered: flush it first so that the summary comes after
+        // the changes when both streams go to the same terminal.
+        env.stdout.flush().map_err(write_failure)?;
         let _ = writeln!(env.stderr, "jv: {}", diff::summary(&changes));
         return Err(Failure::Exit(1));
     }

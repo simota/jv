@@ -59,11 +59,9 @@ impl TypedFormatter {
             None => self.color.push(out, KEY, "root"),
             Some(p) if doc.node_type(p) == NodeType::Array => {
                 self.color
-                    .push(out, KEY, &format!("[{}]", doc.key(id).as_text()));
+                    .push(out, KEY, &format!("[{}]", doc.key_text(id)));
             }
-            Some(_) => self
-                .color
-                .push(out, KEY, &quote_string(&doc.key(id).as_text())),
+            Some(_) => self.color.push(out, KEY, &quote_string(&doc.key_text(id))),
         }
         let n = doc.children(id).len();
         match doc.node_type(id) {

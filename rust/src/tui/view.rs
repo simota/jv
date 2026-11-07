@@ -178,7 +178,7 @@ impl Model {
         let (hl_key, hl_value) = self.highlight(node);
         if is_object_member(doc, node) {
             let key_style = if hl_key { s.matched } else { s.key };
-            spans.push(styled(quote_string(&doc.key(node).as_text()), key_style));
+            spans.push(styled(quote_string(&doc.key_text(node)), key_style));
             spans.push(Span::raw(": "));
         }
         let children = doc.children(node);
@@ -249,7 +249,7 @@ impl Model {
             return (has_key, !has_key);
         }
         let term = lower(&self.match_label);
-        let key = has_key && lower(&doc.key(node).as_text()).contains(term.as_ref());
+        let key = has_key && lower(&doc.key_text(node)).contains(term.as_ref());
         let value =
             doc.children(node).is_empty() && lower(&doc.raw_string(node)).contains(term.as_ref());
         (key, value)

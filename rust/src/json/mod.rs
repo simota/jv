@@ -60,36 +60,34 @@ impl fmt::Display for NodeType {
     }
 }
 
+/// A string stored in a [`Document`]'s string pool; resolve it with
+/// [`Document::text`]. Keeping all key and string data in one buffer avoids
+/// an allocation per string.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Str {
+    start: usize,
+    len: usize,
+}
+
 /// How a node is addressed by its parent.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Key {
     /// A top-level document (shown as `root`).
     Root,
     /// Position inside an array (or of a document inside a wrapped stream).
     Index(usize),
     /// Object member name.
-    Name(Box<str>),
-}
-
-impl Key {
-    /// The key as text: `root`, the decimal index, or the member name.
-    pub fn as_text(&self) -> Cow<'_, str> {
-        match self {
-            Key::Root => Cow::Borrowed("root"),
-            Key::Index(i) => Cow::Owned(i.to_string()),
-            Key::Name(s) => Cow::Borrowed(s),
-        }
-    }
+    Name(Str),
 }
 
 /// Scalar payload of a node. Numbers keep their literal text so that
 /// formatting never changes them (`1.50` stays `1.50`).
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Value {
     Object,
     Array,
-    String(Box<str>),
-    Number(Box<str>),
+    String(Str),
+    Number(Str),
     Bool(bool),
     Null,
 }
@@ -167,9 +165,59 @@ impl std::error::Error for ParseError {}
 pub struct Document {
     nodes: Vec<Node>,
     roots: Vec<NodeId>,
+    /// String pool for keys, strings and number literals.
+    strings: String,
 }
 
 impl Document {
+    pub(crate) fn with_capacity(string_bytes: usize) -> Document {
+        Document {
+            strings: String::with_capacity(string_bytes),
+            ..Document::default()
+        }
+    }
+
+    /// Adds `s` to the string pool.
+    pub(crate) fn intern(&mut self, s: &str) -> Str {
+        let start = self.strings.len();
+        self.strings.push_str(s);
+        Str {
+            start,
+            len: s.len(),
+        }
+    }
+
+    /// The text of a pooled string.
+    pub fn text(&self, s: Str) -> &str {
+        &self.strings[s.start..s.start + s.len]
+    }
+
+    /// The key of a node as text: `root`, the decimal index, or the member
+    /// name.
+    pub fn key_text(&self, id: NodeId) -> Cow<'_, str> {
+        match self.nodes[id.index()].key {
+            Key::Root => Cow::Borrowed("root"),
+            Key::Index(i) => Cow::Owned(i.to_string()),
+            Key::Name(s) => Cow::Borrowed(self.text(s)),
+        }
+    }
+
+    /// The member name of a node inside an object.
+    pub fn member_name(&self, id: NodeId) -> Option<&str> {
+        match self.nodes[id.index()].key {
+            Key::Name(s) => Some(self.text(s)),
+            _ => None,
+        }
+    }
+
+    /// The content of a string node.
+    pub fn string(&self, id: NodeId) -> Option<&str> {
+        match self.nodes[id.index()].value {
+            Value::String(s) => Some(self.text(s)),
+            _ => None,
+        }
+    }
+
     pub(crate) fn push(&mut self, node: Node) -> NodeId {
         let id = NodeId(u32::try_from(self.nodes.len()).expect("more than u32::MAX JSON nodes"));
         self.nodes.push(node);
@@ -257,7 +305,7 @@ impl Document {
         while let Some(id) = stack.pop() {
             if self.node_type(id) == NodeType::Object {
                 let mut children = std::mem::take(&mut self.nodes[id.index()].children);
-                children.sort_by(|a, b| self.key(*a).as_text().cmp(&self.key(*b).as_text()));
+                children.sort_by(|a, b| self.key_text(*a).cmp(&self.key_text(*b)));
                 self.nodes[id.index()].children = children;
             }
             stack.extend_from_slice(&self.nodes[id.index()].children);
@@ -293,7 +341,7 @@ impl Document {
     /// The path suffix that addresses `child` within `parent`
     /// (`.key`, `["odd key"]` or `[3]`).
     pub fn child_path_segment(&self, parent: NodeId, child: NodeId) -> String {
-        let key = self.key(child).as_text();
+        let key = self.key_text(child);
         if self.node_type(parent) == NodeType::Array {
             return format!("[{key}]");
         }
@@ -308,9 +356,9 @@ impl Document {
     /// what the Go implementation prints for them (their payload is nil);
     /// callers only rely on it for search highlighting of empty containers.
     pub fn string_value(&self, id: NodeId) -> Cow<'_, str> {
-        match &self.node(id).value {
-            Value::String(s) => Cow::Owned(quote_string(s)),
-            Value::Number(n) => Cow::Borrowed(n),
+        match self.node(id).value {
+            Value::String(s) => Cow::Owned(quote_string(self.text(s))),
+            Value::Number(n) => Cow::Borrowed(self.text(n)),
             Value::Bool(true) => Cow::Borrowed("true"),
             Value::Bool(false) => Cow::Borrowed("false"),
             Value::Null => Cow::Borrowed("null"),
@@ -320,14 +368,10 @@ impl Document {
 
     /// The unquoted content of string nodes, [`Self::string_value`] otherwise.
     pub fn raw_string(&self, id: NodeId) -> Cow<'_, str> {
-        match &self.node(id).value {
-            Value::String(s) => Cow::Borrowed(s),
-            _ => self.string_value(id),
+        match self.string(id) {
+            Some(s) => Cow::Borrowed(s),
+            None => self.string_value(id),
         }
-    }
-
-    pub(crate) fn nodes(&self) -> &[Node] {
-        &self.nodes
     }
 
     pub(crate) fn nodes_mut(&mut self) -> &mut Vec<Node> {

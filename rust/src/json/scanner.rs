@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 
-use super::{Document, Key, Node, NodeId, ParseError, SyntaxError, Value, unquote};
+use super::{Document, Key, Node, NodeId, ParseError, Str, SyntaxError, Value, unquote};
 use crate::gostr::{decode_rune, json_quote_char};
 
 /// Maximum container nesting depth.
@@ -20,7 +20,10 @@ pub fn parse_bytes(data: &[u8]) -> Result<Document, ParseError> {
     let mut sc = Scanner {
         data,
         pos: 0,
-        doc: Document::default(),
+        // String data is at most about the input size; reserving it up front
+        // avoids regrowing the pool (untouched capacity is not resident).
+        doc: Document::with_capacity(data.len()),
+        scratch: Vec::new(),
     };
     loop {
         sc.skip_ws();
@@ -40,26 +43,21 @@ struct Scanner<'a> {
     data: &'a [u8],
     pos: usize,
     doc: Document,
+    /// Children of the open containers, innermost last. Each container
+    /// moves its children into an exactly-sized `Vec` when it closes, which
+    /// avoids repeated reallocation while children are added.
+    scratch: Vec<NodeId>,
 }
 
-enum Frame {
-    Object {
-        id: NodeId,
-        /// Key -> child position; built once an object has more than 16
-        /// members (smaller objects use a linear scan).
-        index: Option<HashMap<Box<str>, usize>>,
-    },
-    Array {
-        id: NodeId,
-    },
-}
-
-impl Frame {
-    fn id(&self) -> NodeId {
-        match self {
-            Frame::Object { id, .. } | Frame::Array { id } => *id,
-        }
-    }
+/// An open container.
+struct Frame {
+    id: NodeId,
+    is_object: bool,
+    /// Where this container's children start in `Scanner::scratch`.
+    start: usize,
+    /// Key -> child position; built once an object has more than 16
+    /// members (smaller objects use a linear scan).
+    index: Option<HashMap<Box<str>, usize>>,
 }
 
 type SResult<T> = std::result::Result<T, SyntaxError>;
@@ -119,18 +117,20 @@ impl Scanner<'_> {
                 let Some(top) = stack.last_mut() else {
                     return Ok(child);
                 };
-                attach(&mut self.doc, top, child);
+                attach(&self.doc, &mut self.scratch, top, child);
                 self.skip_ws();
                 let Some(c) = self.peek() else {
                     return Err(self.unexpected(""));
                 };
-                let is_object = matches!(top, Frame::Object { .. });
-                match (is_object, c) {
+                match (top.is_object, c) {
                     (_, b',') => self.pos += 1,
                     (true, b'}') | (false, b']') => {
                         self.pos += 1;
-                        let done = stack.pop().map(|f| f.id());
-                        completed = done;
+                        let frame = stack.pop().expect("open container");
+                        let children = self.scratch[frame.start..].to_vec();
+                        self.scratch.truncate(frame.start);
+                        self.doc.nodes_mut()[frame.id.index()].children = children;
+                        completed = Some(frame.id);
                     }
                     (true, _) => return Err(self.unexpected("after object key:value pair")),
                     (false, _) => return Err(self.unexpected("after array element")),
@@ -138,9 +138,9 @@ impl Scanner<'_> {
             }
             // Read the next member/element of the innermost container.
             let top = stack.last().expect("an open container");
-            let top_id = top.id();
-            match top {
-                Frame::Object { .. } => {
+            let top_id = top.id;
+            match top.is_object {
+                true => {
                     self.skip_ws();
                     if self.peek() != Some(b'"') {
                         return Err(self.unexpected("looking for beginning of object key string"));
@@ -151,10 +151,10 @@ impl Scanner<'_> {
                         return Err(self.unexpected("after object key"));
                     }
                     self.pos += 1;
-                    key = Key::Name(name.into_boxed_str());
+                    key = Key::Name(name);
                 }
-                Frame::Array { .. } => {
-                    key = Key::Index(self.doc.children(top_id).len());
+                false => {
+                    key = Key::Index(self.scratch.len() - top.start);
                 }
             }
             parent = Some(top_id);
@@ -195,15 +195,22 @@ impl Scanner<'_> {
                     self.pos += 1;
                     return Ok((id, None));
                 }
-                let frame = if is_object {
-                    Frame::Object { id, index: None }
-                } else {
-                    Frame::Array { id }
+                let frame = Frame {
+                    id,
+                    is_object,
+                    start: self.scratch.len(),
+                    index: None,
                 };
                 return Ok((id, Some(frame)));
             }
-            b'"' => Value::String(self.string()?.into_boxed_str()),
-            b'-' | b'0'..=b'9' => Value::Number(self.number()?.into()),
+            b'"' => Value::String(self.string()?),
+            b'-' | b'0'..=b'9' => {
+                let start = self.pos;
+                self.number()?;
+                let literal =
+                    std::str::from_utf8(&self.data[start..self.pos]).expect("ASCII number literal");
+                Value::Number(self.doc.intern(literal))
+            }
             b't' => {
                 self.literal(b"true")?;
                 Value::Bool(true)
@@ -231,7 +238,8 @@ impl Scanner<'_> {
         })
     }
 
-    fn string(&mut self) -> SResult<String> {
+    /// Reads a string literal into the document's string pool.
+    fn string(&mut self) -> SResult<Str> {
         let start = self.pos;
         self.pos += 1; // opening quote
         let mut escaped = false;
@@ -241,10 +249,12 @@ impl Scanner<'_> {
                     self.pos += 1;
                     let raw = &self.data[start + 1..self.pos - 1];
                     if !escaped && let Ok(s) = std::str::from_utf8(raw) {
-                        return Ok(s.to_owned());
+                        return Ok(self.doc.intern(s));
                     }
-                    return unquote(&self.data[start..self.pos])
-                        .map_err(|e| self.error_at(start, format!("invalid string literal: {e}")));
+                    let decoded = unquote(&self.data[start..self.pos]).map_err(|e| {
+                        self.error_at(start, format!("invalid string literal: {e}"))
+                    })?;
+                    return Ok(self.doc.intern(&decoded));
                 }
                 b'\\' => {
                     escaped = true;
@@ -257,8 +267,8 @@ impl Scanner<'_> {
         Err(self.error_at(self.data.len(), "unexpected end of input"))
     }
 
-    fn number(&mut self) -> SResult<&str> {
-        let start = self.pos;
+    /// Consumes a number literal.
+    fn number(&mut self) -> SResult<()> {
         if self.peek() == Some(b'-') {
             self.pos += 1;
         }
@@ -282,8 +292,7 @@ impl Scanner<'_> {
                 return Err(self.unexpected("in exponent of numeric literal"));
             }
         }
-        // Only ASCII bytes were consumed.
-        Ok(std::str::from_utf8(&self.data[start..self.pos]).expect("ASCII number literal"))
+        Ok(())
     }
 
     fn digits(&mut self) -> usize {
@@ -312,52 +321,42 @@ impl Scanner<'_> {
 /// Adds `child` to the container of `frame`. Duplicate object keys keep the
 /// position of the first occurrence and the value of the last one, as in
 /// Go's `encoding/json`.
-fn attach(doc: &mut Document, frame: &mut Frame, child: NodeId) {
-    match frame {
-        Frame::Array { id } => doc.nodes_mut()[id.index()].children.push(child),
-        Frame::Object { id, index } => {
-            let Key::Name(name) = doc.key(child).clone() else {
-                unreachable!("object members always have a name");
-            };
-            let children = &doc.nodes()[id.index()].children;
-            let dup = match index {
-                Some(map) => map.get(&name).copied(),
-                None => children
-                    .iter()
-                    .position(|&c| matches!(doc.key(c), Key::Name(k) if *k == name)),
-            };
-            let children = &mut doc.nodes_mut()[id.index()].children;
-            match dup {
-                Some(i) => children[i] = child,
-                None => {
-                    children.push(child);
-                    let len = children.len();
-                    match index {
-                        Some(map) => {
-                            map.insert(name, len - 1);
-                        }
-                        None if len > 16 => {
-                            let ids = children.clone();
-                            let map = ids
-                                .iter()
-                                .enumerate()
-                                .map(|(i, &c)| (key_name(doc, c), i))
-                                .collect();
-                            *index = Some(map);
-                        }
-                        None => {}
-                    }
-                }
-            }
+fn attach(doc: &Document, scratch: &mut Vec<NodeId>, frame: &mut Frame, child: NodeId) {
+    if !frame.is_object {
+        scratch.push(child);
+        return;
+    }
+    let name = member_name(doc, child);
+    let members = &scratch[frame.start..];
+    let dup = match &frame.index {
+        Some(map) => map.get(name).copied(),
+        None => members.iter().position(|&c| member_name(doc, c) == name),
+    };
+    if let Some(i) = dup {
+        scratch[frame.start + i] = child;
+        return;
+    }
+    scratch.push(child);
+    let len = scratch.len() - frame.start;
+    match &mut frame.index {
+        Some(map) => {
+            map.insert(name.into(), len - 1);
         }
+        None if len > 16 => {
+            let map = scratch[frame.start..]
+                .iter()
+                .enumerate()
+                .map(|(i, &c)| (Box::from(member_name(doc, c)), i))
+                .collect();
+            frame.index = Some(map);
+        }
+        None => {}
     }
 }
 
-fn key_name(doc: &Document, id: NodeId) -> Box<str> {
-    match doc.key(id) {
-        Key::Name(s) => s.clone(),
-        other => other.as_text().into(),
-    }
+fn member_name(doc: &Document, id: NodeId) -> &str {
+    doc.member_name(id)
+        .expect("object members always have a name")
 }
 
 fn line_col(data: &[u8], offset: usize) -> (usize, usize) {

@@ -302,7 +302,7 @@ impl Model {
         let doc = &self.doc;
         let mut out = Vec::new();
         doc.walk(self.root, |n| {
-            if is_object_member(doc, n) && lower(&doc.key(n).as_text()).contains(needle.as_ref()) {
+            if is_object_member(doc, n) && lower(&doc.key_text(n)).contains(needle.as_ref()) {
                 out.push(n);
                 return true;
             }

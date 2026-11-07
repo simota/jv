@@ -1,5 +1,5 @@
 use super::{Colorizer, Formatter, KEY, scalar_color};
-use crate::json::{Document, NodeId, NodeType, Value, quote_string};
+use crate::json::{Document, NodeId, NodeType, quote_string};
 
 /// Indented (or single-line) JSON that keeps the input key order.
 #[derive(Clone, Debug, Default)]
@@ -57,7 +57,7 @@ impl PrettyFormatter {
             self.newline(out, depth + 1);
             if is_object {
                 self.color
-                    .push(out, KEY, &quote_string(&doc.key(child).as_text()));
+                    .push(out, KEY, &quote_string(&doc.key_text(child)));
                 out.push(':');
                 if !self.compact {
                     out.push(' ');
@@ -86,7 +86,7 @@ impl PrettyFormatter {
 impl Formatter for PrettyFormatter {
     fn format_into(&self, out: &mut String, doc: &Document, id: NodeId) {
         if self.raw
-            && let Value::String(s) = &doc.node(id).value
+            && let Some(s) = doc.string(id)
         {
             out.push_str(s);
             out.push('\n');
