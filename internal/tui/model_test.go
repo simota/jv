@@ -316,3 +316,31 @@ func TestDisplaySafe(t *testing.T) {
 		}
 	}
 }
+
+// The detail-mode header shows the path, and a search highlight re-renders
+// the value; both must be escaped too.
+func TestHeaderAndHighlightEscapeControls(t *testing.T) {
+	src := `{"k\u009b]0;x\u007f": "hit\u009b2J"}`
+	root, err := parser.Parse(strings.NewReader(src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := NewModel(root, Options{Depth: 1})
+	m.copyFn = func(string) error { return nil }
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 10})
+	m = typeSearch(next.(Model), "hit")
+	view := m.View()
+	if strings.Contains(view, "\u009b") || !strings.Contains(view, `"hit\u009b2J"`) {
+		t.Errorf("highlighted value not escaped:\n%q", view)
+	}
+	m = press(m, "v")
+	view = m.View()
+	for _, bad := range []string{"\x7f", "\u009b"} {
+		if strings.Contains(view, bad) {
+			t.Errorf("detail view contains raw %q:\n%q", bad, view)
+		}
+	}
+	if !strings.Contains(view, `jv - Value: $["k\u009b]0;x\u007f"]`) {
+		t.Errorf("header path not escaped:\n%q", view)
+	}
+}

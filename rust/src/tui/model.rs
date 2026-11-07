@@ -636,7 +636,10 @@ impl Model {
                 b.push_str(&doc.string_value(n));
             }
         }
-        self.detail_lines = super::text::wrap(&super::text::display_safe(&b), self.width);
+        // Tabs become four spaces, as lipgloss renders them in the Go viewer
+        // (ratatui would drop them).
+        let b = super::text::display_safe(&b).replace('\t', "    ");
+        self.detail_lines = super::text::wrap(&b, self.width);
         self.detail_offset = 0;
         self.detail_mode = true;
     }

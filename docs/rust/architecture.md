@@ -114,6 +114,7 @@ responsive. Document text (keys, values, paths, the detail view) goes through
 `text::display_safe`, which shows control characters as `\u00XX` escapes
 (as the Go viewer does), so string contents cannot inject escape sequences
 into the terminal; ratatui also drops any control character left in a cell.
+Tabs in the detail view are expanded to four spaces, as lipgloss does.
 
 ## Compatibility layer
 

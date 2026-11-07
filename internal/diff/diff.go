@@ -123,8 +123,9 @@ type decimal struct {
 	exp      *big.Int
 }
 
-// maxExponentDigits bounds the exponent literals that are compared
-// numerically; longer ones fall back to textual comparison.
+// maxExponentDigits bounds the exponents (significant digits, leading zeros
+// do not count) that are compared numerically; longer ones fall back to
+// textual comparison.
 const maxExponentDigits = 30
 
 func parseDecimal(s string) (decimal, bool) {
@@ -138,7 +139,7 @@ func parseDecimal(s string) (decimal, bool) {
 	exp := new(big.Int)
 	if i := strings.IndexAny(s, "eE"); i >= 0 {
 		e := s[i+1:]
-		if len(strings.TrimLeft(e, "+-")) > maxExponentDigits {
+		if len(strings.TrimLeft(strings.TrimLeft(e, "+-"), "0")) > maxExponentDigits {
 			return decimal{}, false
 		}
 		if _, ok := exp.SetString(e, 10); !ok {

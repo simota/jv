@@ -201,9 +201,14 @@ impl Decimal {
         let (mantissa, exp) = match s.find(['e', 'E']) {
             Some(i) => {
                 let e = &s[i + 1..];
-                // Exponents this long cannot be compared meaningfully; fall
-                // back to textual comparison (as Go does on overflow).
-                if e.trim_start_matches(['+', '-']).len() > 30 {
+                // Exponents with more than 30 significant digits fall back to
+                // textual comparison (leading zeros do not count); Go uses
+                // the same rule.
+                if e.trim_start_matches(['+', '-'])
+                    .trim_start_matches('0')
+                    .len()
+                    > 30
+                {
                     return None;
                 }
                 (&s[..i], e.parse::<i128>().ok()?)
@@ -311,6 +316,9 @@ mod tests {
             ("0.0e5", "0"),
             ("120", "1.2e2"),
             ("-0.5", "-5E-1"),
+            ("1e0000000000000000000000000000001", "10"),
+            ("1e-0000000000000000000000000000000001", "0.1"),
+            ("5E+0000000000000000000000000000000", "5"),
         ] {
             assert!(numbers_equal(x, y), "{x} == {y}");
         }

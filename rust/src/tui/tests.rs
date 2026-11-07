@@ -452,3 +452,35 @@ fn tree_and_footer_escape_c1_controls() {
     press(&mut m, &["Y"]);
     assert_eq!(copied.borrow().last().unwrap(), "$[\"k\u{9b}2J\"]");
 }
+
+#[test]
+fn header_and_highlight_escape_controls() {
+    let src = r#"{"k\u009b]0;x\u007f": "hit\u009b2J"}"#;
+    let (mut m, _) = model_for(src, 100);
+    type_search(&mut m, "hit");
+    assert!(!m.is_detail_mode());
+    let view = m.view();
+    assert!(
+        !view.contains('\u{9b}') && view.contains(r#""hit\u009b2J""#),
+        "{view:?}"
+    );
+    press(&mut m, &["v"]);
+    let view = m.view();
+    for bad in ['\u{7f}', '\u{9b}'] {
+        assert!(!view.contains(bad), "raw {bad:?} in {view:?}");
+    }
+    assert!(
+        view.contains(r#"jv - Value: $["k\u009b]0;x\u007f"]"#),
+        "{view:?}"
+    );
+}
+
+// Tabs in the detail view are shown as four spaces, like lipgloss does in
+// the Go viewer (ratatui would drop them).
+#[test]
+fn detail_view_expands_tabs() {
+    let (mut m, _) = model_for(r#"{"tab": "x\ty"}"#, 80);
+    press(&mut m, &["j", "v"]);
+    let view = m.view();
+    assert!(view.contains("x    y") && !view.contains('\t'), "{view:?}");
+}
