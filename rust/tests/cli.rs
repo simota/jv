@@ -48,6 +48,7 @@ fn run_with(input: &str, no_color: bool, args: &[&str], tui_call: &mut TuiCall) 
         stdout_is_terminal: false,
         stderr: &mut stderr,
         no_color,
+        completion_descriptions: None,
         run_tui: &mut run_tui,
     };
     let code = execute(args.iter().map(OsString::from).collect(), &mut env);
@@ -533,4 +534,56 @@ fn binary_exits_quietly_when_stdout_closes() {
     let out = child.wait_with_output().unwrap();
     assert_eq!(out.status.code(), Some(jv::cli::EXIT_BROKEN_PIPE));
     assert_eq!(out.stderr, b"");
+}
+
+#[test]
+fn shell_completion() {
+    let out = run("", &["completion", "bash"]);
+    assert_eq!(out.code, 0);
+    assert!(out.stdout.starts_with("# bash completion V2 for jv"));
+    assert!(
+        out.stdout
+            .contains("requestComp=\"${words[0]} __complete ${args[*]}\"")
+    );
+    let nodesc = run("", &["completion", "bash", "--no-descriptions"]).stdout;
+    assert!(nodesc.contains("requestComp=\"${words[0]} __completeNoDesc ${args[*]}\""));
+    for shell in ["zsh", "fish", "powershell"] {
+        let out = run("", &["completion", shell]);
+        assert_eq!(out.code, 0, "{shell}");
+        assert!(out.stdout.contains("__complete"), "{shell}");
+    }
+    let help = run("", &["completion"]);
+    assert!(
+        help.stdout
+            .starts_with("Generate the autocompletion script for jv for the specified shell.")
+    );
+    let bad = run("", &["completion", "bash", "extra"]);
+    assert_eq!(bad.code, 1);
+    assert_eq!(
+        bad.stderr,
+        "Error: unknown command \"extra\" for \"jv completion bash\"\n"
+    );
+
+    let flags = run("", &["__complete", "-r", "--c"]);
+    assert_eq!(
+        flags.stdout,
+        "--color\tColor (auto/always/never); NO_COLOR is honored when not set\n--compact\tPrint each document on a single line\n:4\n"
+    );
+    assert_eq!(
+        flags.stderr,
+        "Completion ended with directive: ShellCompDirectiveNoFileComp\n"
+    );
+    assert_eq!(
+        run("", &["__completeNoDesc", "--sort"]).stdout,
+        "--sort-keys\n:4\n"
+    );
+    // values and file names are left to the shell
+    assert_eq!(run("", &["__complete", "-p", ""]).stdout, ":0\n");
+    let unknown = run("", &["__complete", "--bogus=x"]);
+    assert!(
+        unknown
+            .stderr
+            .starts_with("[Debug] [Error] Subcommand 'jv' does not support flag 'bogus'\n")
+    );
+    assert_eq!(run("", &["__complete"]).code, 1);
 }

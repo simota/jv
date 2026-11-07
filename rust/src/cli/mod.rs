@@ -4,6 +4,8 @@
 //! command can be tested in-process; [`main`] wires it to the real process.
 
 mod args;
+mod completion;
+mod flags;
 mod help;
 
 use std::ffi::OsString;
@@ -35,6 +37,9 @@ pub struct Env<'a> {
     pub stderr: &'a mut dyn Write,
     /// `NO_COLOR` is set to a non-empty value.
     pub no_color: bool,
+    /// `JV_COMPLETION_DESCRIPTIONS` (or `COBRA_COMPLETION_DESCRIPTIONS`):
+    /// a false value turns off descriptions in shell completion.
+    pub completion_descriptions: Option<String>,
     /// Starts the interactive viewer.
     pub run_tui: &'a mut dyn FnMut(Document, NodeId, tui::Options) -> io::Result<()>,
 }
@@ -57,6 +62,13 @@ pub fn main() -> i32 {
         stdout_is_terminal,
         stderr: &mut err,
         no_color: std::env::var_os("NO_COLOR").is_some_and(|v| !v.is_empty()),
+        completion_descriptions: [
+            "JV_COMPLETION_DESCRIPTIONS",
+            "COBRA_COMPLETION_DESCRIPTIONS",
+        ]
+        .iter()
+        .filter_map(|name| std::env::var(name).ok())
+        .find(|v| !v.is_empty()),
         run_tui: &mut run_tui,
     };
     execute(args, &mut env)
@@ -67,6 +79,8 @@ pub fn main() -> i32 {
 enum Failure {
     /// A flag/argument error: cobra prints the usage too.
     Usage(String),
+    /// Like [`Failure::Usage`] for a subcommand with its own usage text.
+    UsageOf(&'static str, String),
     /// A runtime error, printed as `Error: ...`.
     Error(String),
     /// Exit with the given status without a message.
@@ -88,9 +102,12 @@ impl From<&str> for Failure {
 /// Runs `jv` with `args` (without the program name) and returns the exit
 /// status.
 pub fn execute(args: Vec<OsString>, env: &mut Env<'_>) -> i32 {
-    let result = parse(args)
-        .map_err(Failure::Usage)
-        .and_then(|parsed| dispatch(parsed, env));
+    let result = match completion::resolve(&args) {
+        Some((cmd, rest)) => completion::execute(cmd, rest, env),
+        None => parse(args)
+            .map_err(Failure::Usage)
+            .and_then(|parsed| dispatch(parsed, env)),
+    };
     let flushed = env.stdout.flush();
     let result = match (result, flushed) {
         (Ok(()), Err(e)) => Err(write_failure(e)),
@@ -99,17 +116,21 @@ pub fn execute(args: Vec<OsString>, env: &mut Env<'_>) -> i32 {
     match result {
         Ok(()) => 0,
         Err(Failure::Exit(code)) => code,
-        Err(Failure::Usage(msg)) => {
-            let _ = writeln!(env.stdout, "{}", help::USAGE);
-            let _ = env.stdout.flush();
-            let _ = writeln!(env.stderr, "Error: {msg}");
-            1
-        }
+        Err(Failure::Usage(msg)) => usage_error(env, help::USAGE, &msg),
+        Err(Failure::UsageOf(usage, msg)) => usage_error(env, usage, &msg),
         Err(Failure::Error(msg)) => {
             let _ = writeln!(env.stderr, "Error: {msg}");
             1
         }
     }
+}
+
+/// cobra prints the usage (to stdout) and then the error.
+fn usage_error(env: &mut Env<'_>, usage: &str, msg: &str) -> i32 {
+    let _ = writeln!(env.stdout, "{usage}");
+    let _ = env.stdout.flush();
+    let _ = writeln!(env.stderr, "Error: {msg}");
+    1
 }
 
 fn dispatch(parsed: Parsed, env: &mut Env<'_>) -> Result<(), Failure> {

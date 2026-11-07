@@ -43,3 +43,132 @@ Flags:
       --theme string     Theme (dark/light) (default "dark")
   -t, --type             Show type hints
 "##;
+
+// Texts of the hidden `completion` command family that cobra adds (captured
+// from the Go build).
+
+pub const COMPLETION_LONG: &str = r##"Generate the autocompletion script for jv for the specified shell.
+See each sub-command's help for details on how to use the generated script."##;
+
+pub const COMPLETION_USAGE: &str = r##"Usage:
+  jv completion [command]
+
+Available Commands:
+  bash        Generate the autocompletion script for bash
+  fish        Generate the autocompletion script for fish
+  powershell  Generate the autocompletion script for powershell
+  zsh         Generate the autocompletion script for zsh
+
+Flags:
+  -h, --help   help for completion
+
+Use "jv completion [command] --help" for more information about a command.
+"##;
+
+pub const BASH_LONG: &str = r##"Generate the autocompletion script for the bash shell.
+
+This script depends on the 'bash-completion' package.
+If it is not installed already, you can install it via your OS's package manager.
+
+To load completions in your current shell session:
+
+	source <(jv completion bash)
+
+To load completions for every new session, execute once:
+
+#### Linux:
+
+	jv completion bash > /etc/bash_completion.d/jv
+
+#### macOS:
+
+	jv completion bash > $(brew --prefix)/etc/bash_completion.d/jv
+
+You will need to start a new shell for this setup to take effect."##;
+
+pub const BASH_USAGE: &str = r##"Usage:
+  jv completion bash
+
+Flags:
+  -h, --help              help for bash
+      --no-descriptions   disable completion descriptions
+"##;
+
+pub const ZSH_LONG: &str = r##"Generate the autocompletion script for the zsh shell.
+
+If shell completion is not already enabled in your environment you will need
+to enable it.  You can execute the following once:
+
+	echo "autoload -U compinit; compinit" >> ~/.zshrc
+
+To load completions in your current shell session:
+
+	source <(jv completion zsh)
+
+To load completions for every new session, execute once:
+
+#### Linux:
+
+	jv completion zsh > "${fpath[1]}/_jv"
+
+#### macOS:
+
+	jv completion zsh > $(brew --prefix)/share/zsh/site-functions/_jv
+
+You will need to start a new shell for this setup to take effect."##;
+
+pub const ZSH_USAGE: &str = r##"Usage:
+  jv completion zsh [flags]
+
+Flags:
+  -h, --help              help for zsh
+      --no-descriptions   disable completion descriptions
+"##;
+
+pub const FISH_LONG: &str = r##"Generate the autocompletion script for the fish shell.
+
+To load completions in your current shell session:
+
+	jv completion fish | source
+
+To load completions for every new session, execute once:
+
+	jv completion fish > ~/.config/fish/completions/jv.fish
+
+You will need to start a new shell for this setup to take effect."##;
+
+pub const FISH_USAGE: &str = r##"Usage:
+  jv completion fish [flags]
+
+Flags:
+  -h, --help              help for fish
+      --no-descriptions   disable completion descriptions
+"##;
+
+pub const POWERSHELL_LONG: &str = r##"Generate the autocompletion script for powershell.
+
+To load completions in your current shell session:
+
+	jv completion powershell | Out-String | Invoke-Expression
+
+To load completions for every new session, add the output of the above command
+to your powershell profile."##;
+
+pub const POWERSHELL_USAGE: &str = r##"Usage:
+  jv completion powershell [flags]
+
+Flags:
+  -h, --help              help for powershell
+      --no-descriptions   disable completion descriptions
+"##;
+
+/// Usage of the hidden `__complete` command.
+pub const COMPLETE_USAGE: &str = r##"Usage:
+  jv __complete [command-line]
+
+Aliases:
+  __complete, __completeNoDesc
+
+Flags:
+  -h, --help   help for __complete
+"##;

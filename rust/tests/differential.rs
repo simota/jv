@@ -442,3 +442,129 @@ fn large_and_deep_documents_match_go() {
     }
     h.finish();
 }
+
+#[test]
+fn shell_completion_matches_go() {
+    let mut h = harness!("completion");
+    let fixed: Vec<Vec<&str>> = vec![
+        vec!["completion"],
+        vec!["completion", "-h"],
+        vec!["completion", "--help"],
+        vec!["completion", "help"],
+        vec!["completion", "bogus"],
+        vec!["completion", "-x"],
+        vec!["completion", "--no-descriptions"],
+        vec!["completion", "-h", "bash"],
+        vec!["completion", "--", "bash"],
+        vec!["completion", "bash"],
+        vec!["completion", "zsh"],
+        vec!["completion", "fish"],
+        vec!["completion", "powershell"],
+        vec!["completion", "bash", "--no-descriptions"],
+        vec!["completion", "zsh", "--no-descriptions"],
+        vec!["completion", "fish", "--no-descriptions=true"],
+        vec!["completion", "powershell", "--no-descriptions"],
+        vec!["completion", "bash", "--no-descriptions=false"],
+        vec!["completion", "bash", "--no-descriptions=maybe"],
+        vec!["completion", "bash", "-h"],
+        vec!["completion", "zsh", "--help"],
+        vec!["completion", "fish", "-h", "extra"],
+        vec!["completion", "powershell", "--help=false"],
+        vec!["completion", "bash", "extra"],
+        vec!["completion", "bash", "zsh"],
+        vec!["completion", "bash", "--"],
+        vec!["completion", "bash", "--", "x"],
+        vec!["completion", "bash", "-x"],
+        vec!["-c", "never", "completion", "bash"],
+        vec!["-r", "completion", "bash"],
+        vec!["-h", "completion", "bash"],
+        vec!["-p", "completion"],
+        vec!["--", "completion"],
+        vec!["x.json", "completion"],
+        vec!["__complete"],
+        vec!["__completeNoDesc"],
+        vec!["-r", "__complete", "-"],
+        vec!["__complete", "completion"],
+        vec!["__complete", "completion", ""],
+        vec!["__complete", "completion", "b"],
+        vec!["__complete", "completion", "bash", ""],
+        vec!["__complete", "completion", "bash", "-"],
+        vec!["__complete", "completion", "bash", "--no-descriptions", "-"],
+        vec!["__complete", "completion", "-"],
+        vec!["__complete", "completion", "-h", ""],
+        vec!["__completeNoDesc", "completion", ""],
+    ];
+    for c in fixed {
+        h.check(&args(&c), b"");
+        if cfg!(unix) {
+            h.check_merged(&args(&c), b"");
+        }
+    }
+    let words = [
+        "",
+        "",
+        "-",
+        "--",
+        "-r",
+        "--raw",
+        "--raw=false",
+        "-c",
+        "--color",
+        "--color=",
+        "-c=",
+        "-c=n",
+        "never",
+        "-p",
+        "--path",
+        ".a",
+        "-d",
+        "abc",
+        "3",
+        "--bogus",
+        "--bogus=x",
+        "-x",
+        "file.json",
+        "completion",
+        "bash",
+        "--no-descriptions",
+        "-h",
+        "--help",
+        "--help=false",
+        "--c",
+        "--t",
+        "-t",
+        "--=",
+        "-=",
+        "--diff",
+        "a",
+        "-rt",
+        "-cnever",
+        "--sort",
+        "--no-",
+        "-i",
+        "--depth=",
+        "--theme",
+        "light",
+        "-rx",
+        "--interactive=x",
+    ];
+    let mut rng = Rng(0x5eed_0006);
+    for _ in 0..h.cases {
+        let mut list = vec![
+            if rng.chance(25) {
+                "__completeNoDesc"
+            } else {
+                "__complete"
+            }
+            .to_string(),
+        ];
+        if rng.chance(10) {
+            list.insert(0, "-r".into());
+        }
+        for _ in 0..1 + rng.below(4) {
+            list.push(rng.pick(&words).to_string());
+        }
+        h.check(&list, b"");
+    }
+    h.finish();
+}
