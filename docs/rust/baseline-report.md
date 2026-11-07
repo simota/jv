@@ -68,6 +68,7 @@ Go binary size (`go build`, as in the release workflow): 6.1 MB.
 
 1. **Numeric diff precision**: `numbersEqual` parses with `big.Float` at
    64-bit precision, so `1.00000000000000000001` and `1` compare equal.
+   (Fixed in Go afterwards: numbers are now compared exactly, as in Rust.)
 2. **Completion descriptions variable**: cobra removes `__complete` from
    jv's root while completing, so `JV_COMPLETION_DESCRIPTIONS` is ignored
    for top-level completions (only `COBRA_COMPLETION_DESCRIPTIONS` works).

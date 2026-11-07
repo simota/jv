@@ -15,3 +15,7 @@ coverage.out
 .idea/
 .vscode/
 .agents/
+
+# Python bytecode (rust/scripts)
+__pycache__/
+*.pyc

@@ -1,5 +1,8 @@
 //! Width-aware text helpers (terminal cells, not bytes or chars).
 
+use std::borrow::Cow;
+use std::fmt::Write as _;
+
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
@@ -133,6 +136,28 @@ pub fn styled(s: impl Into<String>, style: Style) -> Span<'static> {
     Span::styled(s.into(), style)
 }
 
+/// Makes document text safe and visible on the terminal. Control characters
+/// other than newline and tab (C0, DEL and C1, e.g. ESC, BEL, CR or U+009B
+/// CSI) are shown as escapes such as `\u001b` (`\r` for CR), the same as the
+/// Go viewer. Quoted JSON strings stay valid: the escapes are the JSON ones.
+pub fn display_safe(s: &str) -> Cow<'_, str> {
+    if !s.chars().any(|c| c.is_control() && c != '\n' && c != '\t') {
+        return Cow::Borrowed(s);
+    }
+    let mut out = String::with_capacity(s.len() + 16);
+    for c in s.chars() {
+        match c {
+            '\n' | '\t' => out.push(c),
+            '\r' => out.push_str("\\r"),
+            c if c.is_control() => {
+                let _ = write!(out, "\\u{:04x}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    Cow::Owned(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -154,5 +179,21 @@ mod tests {
             ["    \"k\":", "\"some text\""]
         );
         assert_eq!(wrap("a\nb", 4), ["a", "b"]);
+    }
+
+    #[test]
+    fn display_safe_escapes_controls() {
+        for (input, want) in [
+            ("plain", "plain"),
+            ("日本語 ok", "日本語 ok"),
+            ("tab\tnl\n", "tab\tnl\n"),
+            ("\u{1b}[31m", r"\u001b[31m"),
+            ("a\rb", r"a\rb"),
+            ("\0\u{7}\u{7f}", r"\u0000\u0007\u007f"),
+            ("\u{85}\u{9f}\u{a0}", "\\u0085\\u009f\u{a0}"),
+        ] {
+            assert_eq!(display_safe(input), want, "{input:?}");
+        }
+        assert!(matches!(display_safe("plain"), Cow::Borrowed(_)));
     }
 }

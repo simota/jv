@@ -100,16 +100,72 @@ func compare(a, b *parser.Node, path string, out *[]Change) {
 }
 
 // numbersEqual treats numerically equal literals (1, 1.0, 1e0) as equal.
+// The comparison is exact: literals that differ in any significant digit are
+// different, however many digits they have (a 64-bit float comparison would
+// call 123456789012345678901 and 123456789012345678902 equal).
 func numbersEqual(x, y string) bool {
 	if x == y {
 		return true
 	}
-	fx, ok1 := new(big.Float).SetString(x)
-	fy, ok2 := new(big.Float).SetString(y)
+	a, ok1 := parseDecimal(x)
+	b, ok2 := parseDecimal(y)
 	if !ok1 || !ok2 {
 		return false
 	}
-	return fx.Cmp(fy) == 0
+	return a.negative == b.negative && a.digits == b.digits && a.exp.Cmp(b.exp) == 0
+}
+
+// decimal is a normalized number: sign * 0.digits * 10^exp, with no leading
+// or trailing zeros in digits (zero has no digits and is unsigned).
+type decimal struct {
+	negative bool
+	digits   string
+	exp      *big.Int
+}
+
+// maxExponentDigits bounds the exponents (significant digits, leading zeros
+// do not count) that are compared numerically; longer ones fall back to
+// textual comparison.
+const maxExponentDigits = 30
+
+func parseDecimal(s string) (decimal, bool) {
+	negative := false
+	if strings.HasPrefix(s, "-") {
+		negative = true
+		s = s[1:]
+	} else {
+		s = strings.TrimPrefix(s, "+")
+	}
+	exp := new(big.Int)
+	if i := strings.IndexAny(s, "eE"); i >= 0 {
+		e := s[i+1:]
+		if len(strings.TrimLeft(strings.TrimLeft(e, "+-"), "0")) > maxExponentDigits {
+			return decimal{}, false
+		}
+		if _, ok := exp.SetString(e, 10); !ok {
+			return decimal{}, false
+		}
+		s = s[:i]
+	}
+	intPart, fracPart, _ := strings.Cut(s, ".")
+	if intPart == "" && fracPart == "" {
+		return decimal{}, false
+	}
+	all := intPart + fracPart
+	for i := 0; i < len(all); i++ {
+		if all[i] < '0' || all[i] > '9' {
+			return decimal{}, false
+		}
+	}
+	trimmed := strings.TrimLeft(all, "0")
+	lead := len(all) - len(trimmed)
+	digits := strings.TrimRight(trimmed, "0")
+	if digits == "" {
+		return decimal{exp: new(big.Int)}, true
+	}
+	// value = 0.digits * 10^(len(intPart) - lead + exp)
+	exp.Add(exp, big.NewInt(int64(len(intPart)-lead)))
+	return decimal{negative: negative, digits: digits, exp: exp}, true
 }
 
 // Summary returns counts in a short human readable form.

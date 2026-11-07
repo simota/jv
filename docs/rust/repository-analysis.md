@@ -65,7 +65,8 @@ concurrency (beyond bubbletea's event loop), or persistent state.
 4. TUI libraries differ (bubbletea vs. ratatui), so screens must be compared
    in a terminal, not just at the model level.
 5. Numbers are kept as literal text; the diff's numeric equality uses
-   64-bit-mantissa `big.Float`.
+   64-bit-mantissa `big.Float` (since replaced by an exact decimal
+   comparison; see D1 in `feature-parity.md`).
 
 ## Classification
 

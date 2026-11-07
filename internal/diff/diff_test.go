@@ -54,3 +54,40 @@ func TestSummary(t *testing.T) {
 		t.Fatalf("summary = %q", got)
 	}
 }
+
+func TestNumbersEqual(t *testing.T) {
+	equal := [][2]string{
+		{"1", "1.0"}, {"1", "1e0"}, {"10e-1", "1"}, {"0", "-0"}, {"0.0e5", "0"},
+		{"120", "1.2e2"}, {"-0.5", "-5E-1"}, {"100", "1e+2"}, {"0.001", "1e-3"},
+		{"123456789012345678901234567890", "1.2345678901234567890123456789e29"},
+		// leading zeros in the exponent do not count toward its length limit
+		{"1e0000000000000000000000000000001", "10"},
+		{"1e-0000000000000000000000000000000001", "0.1"},
+		{"5E+0000000000000000000000000000000", "5"},
+	}
+	for _, c := range equal {
+		if !numbersEqual(c[0], c[1]) {
+			t.Errorf("%s == %s: got false", c[0], c[1])
+		}
+	}
+	// These differ beyond 64-bit binary precision, which used to hide them.
+	different := [][2]string{
+		{"1", "2"}, {"1", "-1"}, {"0.1", "0.01"}, {"1e400", "1e401"},
+		{"123456789012345678901", "123456789012345678902"},
+		{"1.00000000000000000001", "1"},
+		{"0.1000000000000000000001", "0.1"},
+		{"-9223372036854775809", "-9223372036854775808"},
+	}
+	for _, c := range different {
+		if numbersEqual(c[0], c[1]) {
+			t.Errorf("%s != %s: got true", c[0], c[1])
+		}
+	}
+}
+
+func TestCompareLargeNumbers(t *testing.T) {
+	got := describe(Compare(parse(t, `{"id":123456789012345678901}`), parse(t, `{"id":123456789012345678902}`)))
+	if got != "~$.id" {
+		t.Fatalf("got %q want %q", got, "~$.id")
+	}
+}

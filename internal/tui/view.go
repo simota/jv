@@ -3,6 +3,7 @@ package tui
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -46,7 +47,7 @@ func (m Model) renderHeader() string {
 	left := "jv - JSON Viewer"
 	right := "[/] Search  [?] Help  [q] Quit"
 	if m.detailMode {
-		left = "jv - Value: " + m.currentNode().Path()
+		left = "jv - Value: " + displaySafe(m.currentNode().Path())
 		right = "[y] Copy  [Esc] Back"
 	}
 	header := joinWithGap(left, right, m.width)
@@ -58,11 +59,12 @@ func (m Model) renderFooter() string {
 	lines := fmt.Sprintf("Lines: %d/%d", m.cursor+1, len(m.flatNodes))
 	depth := fmt.Sprintf("Depth: %d", node.Depth)
 	footer := "Path: " + node.Path() + "  " + lines + "  " + depth
-
+	if !m.searchMode && m.statusMsg != "" {
+		footer = footer + "  " + m.statusMsg
+	}
+	footer = displaySafe(footer)
 	if m.searchMode {
 		footer = footer + "  Search: " + m.search.View()
-	} else if m.statusMsg != "" {
-		footer = footer + "  " + m.statusMsg
 	}
 	if m.width > 0 && !m.searchMode {
 		footer = ansi.Truncate(footer, m.width, "…")
@@ -119,7 +121,7 @@ func (m *Model) openDetail() {
 	default:
 		b.WriteString("\n\n" + node.StringValue())
 	}
-	content := b.String()
+	content := displaySafe(b.String())
 	if m.width > 0 {
 		content = lipgloss.NewStyle().Width(m.width).Render(content)
 	}
@@ -176,7 +178,7 @@ func (m Model) renderRow(r row) string {
 		if hlKey {
 			keyStyle = m.styles.Match
 		}
-		prefix = keyStyle.Render(parser.QuoteString(node.Key)) + ": "
+		prefix = keyStyle.Render(displaySafe(parser.QuoteString(node.Key))) + ": "
 	}
 
 	var line string
@@ -184,7 +186,7 @@ func (m Model) renderRow(r row) string {
 	case node.Type != parser.TypeObject && node.Type != parser.TypeArray:
 		value := formatNodeValue(node, m.styles)
 		if hlValue {
-			value = m.styles.Match.Render(node.StringValue())
+			value = m.styles.Match.Render(displaySafe(node.StringValue()))
 		}
 		line = indent + prefix + value + comma
 	case node.Expanded && len(node.Children) > 0:
@@ -263,4 +265,44 @@ func joinWithGap(left, right string, width int) string {
 		gap = 1
 	}
 	return left + strings.Repeat(" ", gap) + right
+}
+
+// displaySafe makes document text safe to write to the terminal. Control
+// characters other than newline and tab (C0, DEL and C1, e.g. ESC, BEL, CR
+// or U+009B CSI) are shown as escapes such as `\u001b`, so a document cannot
+// set the window title, write the clipboard (OSC 52) or redraw the screen.
+// Quoted JSON strings stay valid: the escapes are the JSON ones.
+func displaySafe(s string) string {
+	if !hasControl(s) {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 16)
+	for _, r := range s {
+		switch {
+		case r == '\n' || r == '\t':
+			b.WriteRune(r)
+		case r == '\r':
+			b.WriteString(`\r`)
+		case unicode.IsControl(r):
+			fmt.Fprintf(&b, `\u%04x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func hasControl(s string) bool {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if (c < 0x20 && c != '\n' && c != '\t') || c == 0x7f {
+			return true
+		}
+		// C1 controls U+0080..U+009F are encoded as 0xC2 0x80..0x9F
+		if c == 0xc2 && i+1 < len(s) && s[i+1] >= 0x80 && s[i+1] <= 0x9f {
+			return true
+		}
+	}
+	return false
 }

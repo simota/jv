@@ -396,3 +396,91 @@ fn match_highlight_styles() {
     // without color, matches are underlined (the selected line is bold too)
     assert!(key_span.style.add_modifier.contains(Modifier::UNDERLINED));
 }
+
+fn model_for(src: &str, width: u16) -> (Model, Copied) {
+    let mut doc = parse_bytes(src.as_bytes()).unwrap();
+    let root = doc.single_root();
+    let mut m = Model::new(doc, root, depth(1));
+    let copied: Copied = Rc::default();
+    let sink = copied.clone();
+    m.set_copy_fn(move |s| {
+        sink.borrow_mut().push(s.to_string());
+        Ok(())
+    });
+    m.update(Msg::Resize { width, height: 20 });
+    (m, copied)
+}
+
+// Control characters from the document are shown as escapes (like the Go
+// viewer), not passed to the terminal or silently dropped.
+#[test]
+fn detail_view_escapes_control_characters() {
+    let src = r#"{"evil": "a\u001b]0;pwned\u0007b\rc\u009bd\u007fe\tf\ng"}"#;
+    let (mut m, copied) = model_for(src, 80);
+    press(&mut m, &["j", "v"]);
+    assert!(m.is_detail_mode());
+    let view = m.view();
+    for bad in ['\u{1b}', '\u{7}', '\r', '\u{9b}', '\u{7f}'] {
+        assert!(!view.contains(bad), "raw {bad:?} in {view:?}");
+    }
+    assert!(
+        view.contains(r"a\u001b]0;pwned\u0007b\rc\u009bd\u007fe"),
+        "{view:?}"
+    );
+    press(&mut m, &["y"]);
+    assert_eq!(
+        copied.borrow().last().unwrap(),
+        "a\u{1b}]0;pwned\u{7}b\rc\u{9b}d\u{7f}e\tf\ng"
+    );
+}
+
+#[test]
+fn tree_and_footer_escape_c1_controls() {
+    let src = r#"{"k\u009b2J": "v\u009b31m\u007f"}"#;
+    let (mut m, copied) = model_for(src, 80);
+    press(&mut m, &["j"]);
+    let view = m.view();
+    for bad in ['\u{9b}', '\u{7f}'] {
+        assert!(!view.contains(bad), "raw {bad:?} in {view:?}");
+    }
+    for want in [
+        r#""k\u009b2J": "v\u009b31m\u007f""#,
+        r#"Path: $["k\u009b2J"]"#,
+    ] {
+        assert!(view.contains(want), "{want} not in {view:?}");
+    }
+    press(&mut m, &["Y"]);
+    assert_eq!(copied.borrow().last().unwrap(), "$[\"k\u{9b}2J\"]");
+}
+
+#[test]
+fn header_and_highlight_escape_controls() {
+    let src = r#"{"k\u009b]0;x\u007f": "hit\u009b2J"}"#;
+    let (mut m, _) = model_for(src, 100);
+    type_search(&mut m, "hit");
+    assert!(!m.is_detail_mode());
+    let view = m.view();
+    assert!(
+        !view.contains('\u{9b}') && view.contains(r#""hit\u009b2J""#),
+        "{view:?}"
+    );
+    press(&mut m, &["v"]);
+    let view = m.view();
+    for bad in ['\u{7f}', '\u{9b}'] {
+        assert!(!view.contains(bad), "raw {bad:?} in {view:?}");
+    }
+    assert!(
+        view.contains(r#"jv - Value: $["k\u009b]0;x\u007f"]"#),
+        "{view:?}"
+    );
+}
+
+// Tabs in the detail view are shown as four spaces, like lipgloss does in
+// the Go viewer (ratatui would drop them).
+#[test]
+fn detail_view_expands_tabs() {
+    let (mut m, _) = model_for(r#"{"tab": "x\ty"}"#, 80);
+    press(&mut m, &["j", "v"]);
+    let view = m.view();
+    assert!(view.contains("x    y") && !view.contains('\t'), "{view:?}");
+}
