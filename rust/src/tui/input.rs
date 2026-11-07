@@ -139,7 +139,14 @@ impl TextInput {
         let cursor_style = base.add_modifier(Modifier::REVERSED);
         let mut spans = vec![Span::styled("> ", base)];
         if self.value.is_empty() {
-            let mut chars = self.placeholder.chars();
+            // Like the value, the placeholder takes `width` cells plus the
+            // cursor cell.
+            let shown = if self.width == 0 {
+                usize::MAX
+            } else {
+                self.width + 1
+            };
+            let mut chars = self.placeholder.chars().take(shown);
             let first = chars.next().unwrap_or(' ');
             let dim = base.add_modifier(Modifier::DIM);
             if self.focused {
