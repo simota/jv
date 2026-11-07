@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -174,6 +175,40 @@ func TestFlagValidation(t *testing.T) {
 		_, errOut, code := runCLI(t, "{}", args...)
 		if code != 1 || errOut == "" {
 			t.Errorf("%v: code=%d err=%q", args, code, errOut)
+		}
+	}
+}
+
+type errAfterReader struct {
+	data []byte
+	err  error
+}
+
+func (r *errAfterReader) Read(p []byte) (int, error) {
+	if len(r.data) == 0 {
+		return 0, r.err
+	}
+	n := copy(p, r.data)
+	r.data = r.data[n:]
+	return n, nil
+}
+
+// readAllString returns exactly what was read, for sizes around the chunk
+// boundaries, and passes read errors on.
+func TestReadAllString(t *testing.T) {
+	for _, n := range []int{0, 1, 64<<10 - 1, 64 << 10, 64<<10 + 1, 200 << 10, 1 << 20} {
+		want := strings.Repeat("0123456789abcdef", n/16+1)[:n]
+		for _, hint := range []int64{0, int64(n)} {
+			got, err := readAllString(strings.NewReader(want), hint)
+			if err != nil || got != want {
+				t.Fatalf("n=%d hint=%d: len=%d err=%v", n, hint, len(got), err)
+			}
+		}
+	}
+	boom := errors.New("boom")
+	for _, hint := range []int64{0, 10} {
+		if _, err := readAllString(&errAfterReader{data: []byte("partial"), err: boom}, hint); !errors.Is(err, boom) {
+			t.Fatalf("hint=%d: err = %v, want boom", hint, err)
 		}
 	}
 }

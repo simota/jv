@@ -1,11 +1,12 @@
 package cli
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
+	"strings"
 
 	"github.com/simota/jv/internal/diff"
 	"github.com/simota/jv/internal/parser"
@@ -211,12 +212,11 @@ func run(cmd *cobra.Command, opts options, file string) error {
 	}
 
 	formatter := selectFormatter(opts, colorEnabled)
-	var out bytes.Buffer
+	out := pipe.NewWriter(cmd.OutOrStdout())
 	for _, node := range targets {
-		out.WriteString(formatter.Format(node))
+		formatter.FormatTo(out, node)
 	}
-	_, err = cmd.OutOrStdout().Write(out.Bytes())
-	return err
+	return out.Flush()
 }
 
 func runDiff(cmd *cobra.Command, opts options, oldFile, newFile string) error {
@@ -261,7 +261,9 @@ func runDiff(cmd *cobra.Command, opts options, oldFile, newFile string) error {
 	}
 	changes := diff.Compare(a, b)
 	colorEnabled := decideColorEnabled(opts.color, false)
-	if _, err := io.WriteString(cmd.OutOrStdout(), pipe.FormatDiff(changes, colorEnabled)); err != nil {
+	out := pipe.NewWriter(cmd.OutOrStdout())
+	pipe.FormatDiffTo(out, changes, colorEnabled)
+	if err := out.Flush(); err != nil {
 		return err
 	}
 	if len(changes) > 0 {
@@ -283,7 +285,7 @@ func loadDocuments(file string, sortKeys bool) ([]*parser.Node, error) {
 	if err != nil {
 		return nil, err
 	}
-	docs, err := parser.ParseBytes(data)
+	docs, err := parser.ParseString(data)
 	if err != nil {
 		var se *parser.SyntaxError
 		if errors.As(err, &se) {
@@ -299,14 +301,74 @@ func loadDocuments(file string, sortKeys bool) ([]*parser.Node, error) {
 	return docs, nil
 }
 
-func readInput(file string) ([]byte, error) {
+// readInput returns the whole input as a string. Reading straight into a
+// string avoids the extra copy of the input that ParseBytes would make.
+func readInput(file string) (string, error) {
 	if file != "" && file != "-" {
-		return os.ReadFile(file)
+		f, err := os.Open(file)
+		if err != nil {
+			return "", err
+		}
+		defer func() { _ = f.Close() }()
+		var size int64
+		if info, err := f.Stat(); err == nil && info.Mode().IsRegular() {
+			size = info.Size()
+		}
+		return readAllString(f, size)
 	}
 	if file == "-" || !stdinIsTerminal() {
-		return io.ReadAll(stdin)
+		return readAllString(stdin, 0)
 	}
-	return nil, errors.New("no input provided. Try: jv path/to.json | cat file.json | jv | echo '{}' | jv")
+	return "", errors.New("no input provided. Try: jv path/to.json | cat file.json | jv | echo '{}' | jv")
+}
+
+// readAllString reads r until EOF. sizeHint is the expected size (0 when
+// unknown).
+func readAllString(r io.Reader, sizeHint int64) (string, error) {
+	if sizeHint <= 0 {
+		// stdin redirected from a file has a known size too
+		if f, ok := r.(*os.File); ok {
+			if info, err := f.Stat(); err == nil && info.Mode().IsRegular() {
+				sizeHint = info.Size()
+			}
+		}
+	}
+	if sizeHint > 0 && sizeHint < math.MaxInt-512 {
+		var b strings.Builder
+		b.Grow(int(sizeHint) + 512) // room for a file that grows while it is read
+		if _, err := io.Copy(&b, r); err != nil {
+			return "", err
+		}
+		return b.String(), nil
+	}
+	// Unknown size (a pipe): collect chunks and copy them once, instead of
+	// growing one buffer and copying it again at every step.
+	var chunks [][]byte
+	total := 0
+	size := 64 << 10
+	for {
+		chunk := make([]byte, size)
+		n, err := io.ReadFull(r, chunk)
+		if n > 0 {
+			chunks = append(chunks, chunk[:n])
+			total += n
+		}
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if size < 16<<20 {
+			size *= 2
+		}
+	}
+	var b strings.Builder
+	b.Grow(total)
+	for _, c := range chunks {
+		b.Write(c)
+	}
+	return b.String(), nil
 }
 
 func decideInteractive(opts options) bool {

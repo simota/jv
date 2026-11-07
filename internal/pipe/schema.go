@@ -23,6 +23,11 @@ func (f *SchemaFormatter) Format(root *parser.Node) string {
 	return f.FormatMany([]*parser.Node{root})
 }
 
+func (f *SchemaFormatter) FormatTo(out *Writer, root *parser.Node) {
+	out.str(f.Format(root))
+	out.maybeFlush()
+}
+
 // FormatMany prints a single schema merged from several documents (e.g. all
 // lines of a JSON Lines file, or all results of a wildcard path).
 func (f *SchemaFormatter) FormatMany(nodes []*parser.Node) string {
@@ -124,7 +129,7 @@ func (f *SchemaFormatter) write(buf *bytes.Buffer, s *Schema, depth int) {
 	for _, t := range primitiveOrder {
 		if s.primitives[t] {
 			sep()
-			buf.WriteString(f.color.TypeHint(string(t)))
+			buf.WriteString(f.color.TypeHint(t.String()))
 		}
 	}
 }
