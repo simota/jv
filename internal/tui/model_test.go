@@ -2,6 +2,8 @@ package tui
 
 import (
 	"errors"
+	"math/rand"
+	"slices"
 	"strings"
 	"testing"
 
@@ -353,6 +355,46 @@ func TestContainsFoldMatchesToLower(t *testing.T) {
 			lower := strings.ToLower(term)
 			if got, want := containsFold(s, lower), strings.Contains(strings.ToLower(s), lower); got != want {
 				t.Errorf("containsFold(%q, %q) = %v, want %v", s, lower, got, want)
+			}
+		}
+	}
+}
+
+// TestSkippedLayoutMatchesFullRebuild checks that keys which skip the layout
+// pass leave the model exactly as a full rebuild would (every key used to
+// end with one).
+func TestSkippedLayoutMatchesFullRebuild(t *testing.T) {
+	keys := []string{"j", "k", "pgdown", "pgup", "ctrl+d", "ctrl+u", "h", "l", " ", "enter", "esc", "e", "o", "O",
+		"1", "2", "3", "g", "G", "y", "Y", "t", "n", "N", "x"}
+	r := rand.New(rand.NewSource(3))
+	for _, height := range []int{5, 12, 40} {
+		m, _ := newTestModel(t, Options{Depth: 1})
+		next, _ := m.Update(tea.WindowSizeMsg{Width: 60, Height: height})
+		m = next.(Model)
+		for i := 0; i < 3000; i++ {
+			switch r.Intn(40) {
+			case 0:
+				m = typeSearch(m, "needle")
+			case 1:
+				m = typeSearch(m, "$.items[*].id")
+			case 2:
+				m = typeSearch(m, "zzz-not-found")
+			default:
+				k := keys[r.Intn(len(keys))]
+				m = press(m, k)
+				if m.detailMode || m.helpMode {
+					m = press(m, "esc")
+				}
+			}
+			ref := m
+			ref.rebuild()
+			if !slices.Equal(ref.flatNodes, m.flatNodes) || !slices.Equal(ref.nodeRow, m.nodeRow) ||
+				!slices.Equal(ref.rows, m.rows) || ref.cursor != m.cursor || ref.yOffset != m.yOffset {
+				t.Fatalf("height %d step %d: layout out of date (cursor %d/%d, offset %d/%d)",
+					height, i, m.cursor, ref.cursor, m.yOffset, ref.yOffset)
+			}
+			if ref.View() != m.View() {
+				t.Fatalf("height %d step %d: view differs", height, i)
 			}
 		}
 	}

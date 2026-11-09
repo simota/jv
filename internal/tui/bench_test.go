@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/simota/jv/internal/parser"
 )
 
@@ -47,5 +48,44 @@ func BenchmarkLayout(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		layout(root)
+	}
+}
+
+// benchModel returns a fully expanded model over n records with a window.
+func benchModel(b *testing.B, n int) Model {
+	b.Helper()
+	m := NewModel(benchTree(b, n), Options{Depth: 99})
+	m.copyFn = func(string) error { return nil }
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 100, Height: 40})
+	return next.(Model)
+}
+
+// BenchmarkNextMatch measures n on matches that are already visible.
+func BenchmarkNextMatch(b *testing.B) {
+	m := typeSearch(benchModel(b, 50000), "User-4")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m = press(m, "n")
+	}
+}
+
+// BenchmarkSearchJump measures / text Enter including the jump to the match.
+func BenchmarkSearchJump(b *testing.B) {
+	m := benchModel(b, 50000)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m = typeSearch(m, "User-49999")
+	}
+}
+
+// BenchmarkExpandDepth measures the 1-9 keys (re-expand to a depth).
+func BenchmarkExpandDepth(b *testing.B) {
+	m := benchModel(b, 50000)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m = press(m, "1", "3")
 	}
 }
