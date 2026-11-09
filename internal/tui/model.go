@@ -93,7 +93,7 @@ type row struct {
 }
 
 func (m *Model) rebuild() {
-	m.flatNodes, m.nodeRow, m.rows = layout(m.tree)
+	m.layoutTree()
 	if m.cursor >= len(m.flatNodes) {
 		m.cursor = len(m.flatNodes) - 1
 	}
@@ -101,6 +101,11 @@ func (m *Model) rebuild() {
 		m.cursor = 0
 	}
 	m.ensureCursorVisible()
+}
+
+// layoutTree recomputes the visible nodes and rows from the tree.
+func (m *Model) layoutTree() {
+	m.flatNodes, m.nodeRow, m.rows = layout(m.tree)
 }
 
 func layout(root *parser.Node) ([]*parser.Node, []int, []row) {
@@ -168,11 +173,6 @@ func applyExpandDepth(node *parser.Node, depth int) {
 	for _, child := range node.Children {
 		applyExpandDepth(child, depth)
 	}
-}
-
-func flattenVisible(node *parser.Node) []*parser.Node {
-	nodes, _, _ := layout(node)
-	return nodes
 }
 
 func (m *Model) currentNode() *parser.Node {
@@ -249,10 +249,18 @@ func (m *Model) setCursorToNode(target *parser.Node) {
 // revealNode expands every ancestor of target, rebuilds the visible list and
 // moves the cursor to it.
 func (m *Model) revealNode(target *parser.Node) {
+	changed := false
 	for p := target.Parent; p != nil; p = p.Parent {
-		p.Expanded = true
+		if !p.Expanded {
+			p.Expanded = true
+			changed = true
+		}
 	}
-	m.flatNodes = flattenVisible(m.tree)
+	// the layout is current on entry, so it only has to be redone when an
+	// ancestor was expanded
+	if changed {
+		m.layoutTree()
+	}
 	m.setCursorToNode(target)
 }
 

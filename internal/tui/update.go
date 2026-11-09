@@ -133,7 +133,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(s) == 1 && s[0] >= '1' && s[0] <= '9' {
 			current := m.currentNode()
 			applyExpandDepth(m.tree, int(s[0]-'0'))
-			m.flatNodes = flattenVisible(m.tree)
+			m.layoutTree()
 			// keep the cursor on the same node, or its nearest visible ancestor
 			for n := current; n != nil; n = n.Parent {
 				if visible(n) {
@@ -151,14 +151,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// keepsLayout lists the keys that move, copy or toggle hints without
-// expanding or collapsing anything, so they skip the O(visible nodes)
-// layout pass.
+// keepsLayout lists the keys that skip the O(visible nodes) layout pass at
+// the end of Update: they move, copy or toggle hints without expanding or
+// collapsing anything, or (n, N, 1-9) lay out the tree themselves when they
+// change it. The layout is always current when Update is entered.
 var keepsLayout = map[string]bool{
 	"up": true, "k": true, "down": true, "j": true,
 	"pgup": true, "ctrl+u": true, "pgdown": true, "ctrl+d": true,
 	"g": true, "home": true, "G": true, "end": true,
 	"y": true, "Y": true, "t": true, "esc": true,
+	// these lay out the tree themselves when they expand something
+	"n": true, "N": true,
+	"1": true, "2": true, "3": true, "4": true, "5": true, "6": true, "7": true, "8": true, "9": true,
 }
 
 func visible(n *parser.Node) bool {
@@ -208,12 +212,12 @@ func (m Model) updateSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if len(found) == 0 {
 				m.clearMatches()
 				m.statusMsg = "Search: not found: " + term
-				m.rebuild()
+				m.ensureCursorVisible() // nothing was expanded
 				return m, nil
 			}
 			m.setMatches(found, term, strings.HasPrefix(term, "$"))
-			m.jumpToMatch(m.firstMatchFromCursor(true))
-			m.rebuild()
+			m.jumpToMatch(m.firstMatchFromCursor(true)) // lays out if it expands
+			m.ensureCursorVisible()
 			return m, nil
 		}
 	}
